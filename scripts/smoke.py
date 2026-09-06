@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Phase 0 스모크 테스트.
+
+목적은 두 가지다.
+  1. 발급받은 인증키가 Encoding / Decoding 중 어느 쪽으로 동작하는지 확정한다.
+     (계획서 §10-11: "라이브러리마다 요구가 다르다. Phase 0에서 확정할 것")
+  2. 세 서비스의 오퍼레이션명과 응답 필드를 실물로 확인해 tests/fixtures/ 에 저장한다.
+
+원격 개발 컨테이너에서는 ws.bus.go.kr 이 이그레스 정책에 막히므로
+로컬 PC에서 실행해야 한다.
+
+    cp .env.example .env      # NOWBUS_SEOUL_API_KEY 채우기
+    uv run python scripts/smoke.py
+
+serviceKey 는 절대 출력하지 않는다. 로그/스크린샷으로 새는 것을 막는다.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import sys
+import xml.etree.ElementTree as ET
+from urllib.parse import quote, urlencode
+
+import httpx
+
+BASE = os.environ.get("NOWBUS_BUS_API_BASE", "http://ws.bus.go.kr/api/rest")
+FIXTURES = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures"
+
+# 강남역 부근. 아는 좌표면 무엇이든 상관없다.
+PROBE_LAT, PROBE_LON = 37.4979, 127.0276
+PROBE_ROUTE_NAME = "146"
+
+TIMEOUT = 10.0
+
+
+def _load_key() -> str:
+    key = os.environ.get("NOWBUS_SEOUL_API_KEY", "").strip()
+    if not key:
+        # .env 를 직접 읽는다. pydantic-settings 없이도 돌게 하기 위함.
+        env = pathlib.Path(".env")
+        if env.exists():
+            for line in env.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("NOWBUS_SEOUL_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip("'\"")
+    if not key:
+        sys.exit("NOWBUS_SEOUL_API_KEY 가 비어 있다. .env 를 채우고 다시 실행할 것.")
+    return key
+
+
+def call(path: str, params: dict, key: str, mode: str) -> httpx.Response:
+    """mode='decoding': httpx 가 키를 인코딩한다. 'encoding': 키를 그대로 URL 에 박는다."""
+    url = f"{BASE}/{path}"
+    if mode == "decoding":
+        return httpx.get(url, params={**params, "serviceKey": key}, timeout=TIMEOUT)
+    qs = urlencode({k: str(v) for k, v in params.items()}, quote_via=quote)
+    return httpx.get(f"{url}?{qs}&serviceKey={key}", timeout=TIMEOUT)
+
+
+def header_of(text: str) -> tuple[str | None, str | None]:
+    """ws.bus.go.kr 응답의 <headerCd>/<headerMsg> 를 뽑는다. 실패하면 (None, None)."""
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return None, None
+    cd = root.find(".//headerCd")
+    msg = root.find(".//headerMsg")
+    return (cd.text if cd is not None else None, msg.text if msg is not None else None)
+
+
+def looks_ok(resp: httpx.Response) -> bool:
+    if resp.status_code != 200:
+        return False
+    body = resp.text
+    bad = (
+        "SERVICE_KEY_IS_NOT_REGISTERED",
+        "등록되지 않은",
+        "SERVICE ERROR",
+        "LIMITED_NUMBER_OF_SERVICE_REQUESTS",
+        "<OpenAPI_ServiceResponse>",
+    )
+    if any(b in body for b in bad):
+        return False
+    cd, _ = header_of(body)
+    # headerCd 0 = 정상. 코드 체계가 확실치 않으므로 0 이 아니면 본문을 눈으로 본다.
+    return cd is None or cd == "0"
+
+
+def save(name: str, text: str) -> None:
+    FIXTURES.mkdir(parents=True, exist_ok=True)
+    (FIXTURES / f"{name}.xml").write_text(text, encoding="utf-8")
+
+
+def show(text: str, n: int = 500) -> str:
+    return text[:n].replace("\n", " ")
+
+
+# ---------------------------------------------------------------- step 1
+def resolve_key_mode(key: str) -> str | None:
+    """정류소 조회를 두 방식으로 때려보고 동작하는 쪽을 고른다."""
+    print("=" * 72)
+    print("STEP 1  인증키 모드 확정 (Encoding vs Decoding)")
+    print("=" * 72)
+    params = {"tmX": PROBE_LON, "tmY": PROBE_LAT, "radius": 300}
+    winner = None
+    for mode in ("decoding", "encoding"):
+        try:
+            r = call("stationinfo/getStationByPos", params, key, mode)
+        except httpx.HTTPError as e:
+            print(f"  {mode:<9} 전송 실패: {type(e).__name__}: {e}")
+            continue
+        cd, msg = header_of(r.text)
+        ok = looks_ok(r)
+        print(f"  {mode:<9} http={r.status_code} headerCd={cd} headerMsg={msg} -> "
+              f"{'OK' if ok else 'FAIL'}")
+        if not ok:
+            print(f"            {show(r.text, 240)}")
+        elif winner is None:
+            winner = mode
+            save("getStationByPos", r.text)
+    print()
+    if winner:
+        print(f"  ==> 인증키는 '{winner}' 방식으로 동작한다.")
+        if winner == "decoding":
+            print("      httpx params= 로 그냥 넘기면 된다. Provider 구현에 그대로 반영.")
+        else:
+            print("      키를 URL 에 직접 박아야 한다. params= 로 넘기면 이중 인코딩된다.")
+    else:
+        print("  ==> 둘 다 실패. 아래를 확인할 것:")
+        print("      - 세 서비스 모두 '활용신청' 승인이 났는가 (키가 있어도 미신청이면 막힌다)")
+        print("      - 승인 직후면 반영까지 시간이 걸릴 수 있다")
+        print("      - 마이페이지의 Encoding/Decoding 키를 서로 바꿔 넣어봤는가")
+    return winner
+
+
+# ---------------------------------------------------------------- step 2
+def probe_services(key: str, mode: str) -> None:
+    print()
+    print("=" * 72)
+    print("STEP 2  세 서비스 오퍼레이션 확인 + 픽스처 저장")
+    print("=" * 72)
+
+    ars_id = None
+    route_id = None
+
+    # 2-1. 정류소정보조회: 좌표 → 근접 정류소
+    r = call("stationinfo/getStationByPos",
+             {"tmX": PROBE_LON, "tmY": PROBE_LAT, "radius": 300}, key, mode)
+    if looks_ok(r):
+        root = ET.fromstring(r.text)
+        items = root.findall(".//itemList")
+        print(f"  [정류소정보] getStationByPos      정류소 {len(items)}개")
+        for it in items[:3]:
+            g = lambda t: (it.findtext(t) or "").strip()  # noqa: E731
+            print(f"      {g('stationNm')}  arsId={g('arsId')} "
+                  f"({g('gpsY')}, {g('gpsX')}) dist={g('dist')}m")
+            ars_id = ars_id or g("arsId")
+        print("      ! tmX/tmY 에 경도/위도를 넣었을 때 결과가 맞는지 확인할 것.")
+    else:
+        print(f"  [정류소정보] getStationByPos      실패: {show(r.text, 200)}")
+
+    # 2-2. 버스도착정보조회: 정류소 → 그 정류소의 전 노선 도착예정
+    if ars_id:
+        r = call("stationinfo/getStationByUid", {"arsId": ars_id}, key, mode)
+        if looks_ok(r):
+            save("getStationByUid", r.text)
+            root = ET.fromstring(r.text)
+            items = root.findall(".//itemList")
+            print(f"  [버스도착정보] getStationByUid   arsId={ars_id} 도착 {len(items)}건")
+            for it in items[:3]:
+                g = lambda t: (it.findtext(t) or "").strip()  # noqa: E731
+                print(f"      {g('rtNm'):>6}  1차={g('arrmsg1')} / 2차={g('arrmsg2')}")
+                print(f"              traTime1={g('traTime1')}s "
+                      f"congestion={g('congestion1') or g('reride_Num1')} "
+                      f"isLast={g('isLast1')} term={g('term')}min")
+                route_id = route_id or g("busRouteId")
+            print("      ! 위 필드명이 실제와 다르면 providers/seoul.py 파싱을 맞춰야 한다.")
+        else:
+            print(f"  [버스도착정보] getStationByUid   실패: {show(r.text, 200)}")
+
+    # 2-3. 노선정보조회: 노선명 → route_id → 경유 정류장 순서 (F-09의 심장)
+    r = call("busRouteInfo/getBusRouteList", {"strSrch": PROBE_ROUTE_NAME}, key, mode)
+    if looks_ok(r):
+        root = ET.fromstring(r.text)
+        items = root.findall(".//itemList")
+        print(f"  [노선정보] getBusRouteList        '{PROBE_ROUTE_NAME}' 검색 {len(items)}건")
+        if items:
+            route_id = (items[0].findtext("busRouteId") or "").strip()
+            print(f"      {items[0].findtext('busRouteNm')} busRouteId={route_id}")
+    else:
+        print(f"  [노선정보] getBusRouteList        실패: {show(r.text, 200)}")
+
+    if route_id:
+        # 오퍼레이션명 오타('Staion')가 실제 스펙이다. 혹시 몰라 둘 다 시도한다.
+        for op in ("busRouteInfo/getStaionByRoute", "busRouteInfo/getStationByRoute"):
+            r = call(op, {"busRouteId": route_id}, key, mode)
+            if looks_ok(r):
+                save("getStaionByRoute", r.text)
+                root = ET.fromstring(r.text)
+                items = root.findall(".//itemList")
+                print(f"  [노선정보] {op.split('/')[1]:<20} 경유 정류장 {len(items)}개  <- route_stop 원천")
+                for it in items[:3]:
+                    g = lambda t: (it.findtext(t) or "").strip()  # noqa: E731
+                    print(f"      seq={g('seq')} {g('stationNm')} "
+                          f"arsId={g('arsId')} dir={g('direction')}")
+                print("      ! seq 와 direction 이 채워지는지가 관건이다.")
+                print("        direction 이 비면 상하행 구분을 다른 필드로 해야 한다")
+                print("        (계획서 §10-1: 반대 방향 버스를 추천하는 치명적 버그)")
+                break
+            print(f"  [노선정보] {op.split('/')[1]:<20} 실패: {show(r.text, 160)}")
+
+
+def main() -> None:
+    key = _load_key()
+    print(f"BASE={BASE}  key length={len(key)} (값은 출력하지 않는다)\n")
+    mode = resolve_key_mode(key)
+    if not mode:
+        sys.exit(1)
+    probe_services(key, mode)
+    print()
+    print("=" * 72)
+    print(f"저장된 픽스처: {FIXTURES}")
+    print(f".env 에 NOWBUS_SEOUL_KEY_MODE={mode} 를 기록해 두면 Provider 가 참조한다.")
+    print("=" * 72)
+
+
+if __name__ == "__main__":
+    main()
