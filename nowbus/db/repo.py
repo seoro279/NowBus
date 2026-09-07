@@ -60,10 +60,18 @@ class StaticRepo:
     ) -> list[Combo]:
         """설계서 §9.1. 프로그램의 심장.
 
-        direction 조인이 핵심이다. seq 비교만으로는 회차 지점을 넘는 조합이
-        살아남는다 - 146번 실물에서 강남역9번출구(seq 66, dir=강남역)와
-        강남역1번출구(seq 70, dir=상계주공7단지)가 그렇다. 그 조합을 추천하면
-        사용자는 종점까지 갔다가 돌아오는 버스를 타야 한다.
+        조건은 seq 증가 하나뿐이다. direction 으로 조인하지 않는다.
+
+        direction 은 상행/하행 코드가 아니라 '버스 앞 행선판' 문자열이고,
+        회차 지점에서 바뀔 뿐 차량은 seq 1 -> N 을 연속으로 달린다. 146번
+        실물에서 회차점은 강남 한복판(seq 67, 기점에서 18.4km)이고 seq 135 는
+        기점으로 되돌아온다. 즉 강남역9번출구(seq 66)에서 타면 4정거장 뒤
+        강남역1번출구(seq 70)에 내린다 - direction 이 달라도 유효한 조합이다.
+        여기서 조인을 걸면 멀쩡한 후보를 죽인다.
+
+        방향 문제는 seq 비교가 이미 해결한다. 도로 양쪽 정류장은 서로 다른
+        stop_id 에 서로 다른 seq 를 가지므로, 반대편에서 타면 seq 가 감소해
+        자동으로 탈락한다.
 
         같은 (route, board, alight) 가 여러 번 나오면 n_stops 최소값만 남긴다
         (계획서 §10-2 회차 노선 대응).
@@ -81,7 +89,6 @@ class StaticRepo:
             FROM route_stop rs1
             JOIN route_stop rs2
               ON rs1.route_id = rs2.route_id
-             AND rs1.direction IS rs2.direction
             WHERE rs1.stop_id IN ({o})
               AND rs2.stop_id IN ({d})
               AND rs2.seq > rs1.seq
