@@ -90,6 +90,10 @@ def call(path: str, params: dict, key: str, mode: str) -> httpx.Response:
     return httpx.get(f"{url}?{qs}&serviceKey={key}", timeout=TIMEOUT)
 
 
+def _f(node: ET.Element, tag: str) -> str:
+    return (node.findtext(tag) or "").strip()
+
+
 def header_of(text: str) -> tuple[str | None, str | None]:
     """ws.bus.go.kr 응답의 <headerCd>/<headerMsg> 를 뽑는다. 실패하면 (None, None)."""
     try:
@@ -144,8 +148,10 @@ def resolve_key_mode(key: str) -> str | None:
             continue
         cd, msg = header_of(r.text)
         ok = looks_ok(r)
-        print(f"  {mode:<9} http={r.status_code} headerCd={cd} headerMsg={msg} -> "
-              f"{'OK' if ok else 'FAIL'}")
+        print(
+            f"  {mode:<9} http={r.status_code} headerCd={cd} headerMsg={msg} -> "
+            f"{'OK' if ok else 'FAIL'}"
+        )
         if not ok:
             print(f"            {show(r.text, 240)}")
         elif winner is None:
@@ -176,50 +182,56 @@ def probe_services(key: str, mode: str) -> None:
     ars_id = None
     route_id = None
 
-    # 2-1. 정류소정보조회: 좌표 → 근접 정류소
-    r = call("stationinfo/getStationByPos",
-             {"tmX": PROBE_LON, "tmY": PROBE_LAT, "radius": 300}, key, mode)
+    # 2-1. 정류소정보조회: 좌표 -> 근접 정류소
+    r = call(
+        "stationinfo/getStationByPos",
+        {"tmX": PROBE_LON, "tmY": PROBE_LAT, "radius": 300},
+        key,
+        mode,
+    )
     if looks_ok(r):
-        root = ET.fromstring(r.text)
-        items = root.findall(".//itemList")
+        items = ET.fromstring(r.text).findall(".//itemList")
         print(f"  [정류소정보] getStationByPos      정류소 {len(items)}개")
         for it in items[:3]:
-            g = lambda t: (it.findtext(t) or "").strip()  # noqa: E731
-            print(f"      {g('stationNm')}  arsId={g('arsId')} "
-                  f"({g('gpsY')}, {g('gpsX')}) dist={g('dist')}m")
-            ars_id = ars_id or g("arsId")
+            print(
+                f"      {_f(it, 'stationNm')}  arsId={_f(it, 'arsId')} "
+                f"({_f(it, 'gpsY')}, {_f(it, 'gpsX')}) dist={_f(it, 'dist')}m"
+            )
+            ars_id = ars_id or _f(it, "arsId")
         print("      ! tmX/tmY 에 경도/위도를 넣었을 때 결과가 맞는지 확인할 것.")
     else:
         print(f"  [정류소정보] getStationByPos      실패: {show(r.text, 200)}")
 
-    # 2-2. 버스도착정보조회: 정류소 → 그 정류소의 전 노선 도착예정
+    # 2-2. 버스도착정보조회: 정류소 -> 그 정류소의 전 노선 도착예정
     if ars_id:
         r = call("stationinfo/getStationByUid", {"arsId": ars_id}, key, mode)
         if looks_ok(r):
             save("getStationByUid", r.text)
-            root = ET.fromstring(r.text)
-            items = root.findall(".//itemList")
+            items = ET.fromstring(r.text).findall(".//itemList")
             print(f"  [버스도착정보] getStationByUid   arsId={ars_id} 도착 {len(items)}건")
             for it in items[:3]:
-                g = lambda t: (it.findtext(t) or "").strip()  # noqa: E731
-                print(f"      {g('rtNm'):>6}  1차={g('arrmsg1')} / 2차={g('arrmsg2')}")
-                print(f"              traTime1={g('traTime1')}s "
-                      f"congestion={g('congestion1') or g('reride_Num1')} "
-                      f"isLast={g('isLast1')} term={g('term')}min")
-                route_id = route_id or g("busRouteId")
-            print("      ! 위 필드명이 실제와 다르면 providers/seoul.py 파싱을 맞춰야 한다.")
+                print(
+                    f"      {_f(it, 'rtNm'):>6}  stId={_f(it, 'stId')}  "
+                    f"1차={_f(it, 'arrmsg1')} / 2차={_f(it, 'arrmsg2')}"
+                )
+                print(
+                    f"              traTime1={_f(it, 'traTime1')}s "
+                    f"congestion1={_f(it, 'congestion1')} "
+                    f"isLast1={_f(it, 'isLast1')} term={_f(it, 'term')}min"
+                )
+                route_id = route_id or _f(it, "busRouteId")
+            print("      ! stId 는 조회한 정류장을 가리키지 않을 수 있다 (광역버스).")
         else:
             print(f"  [버스도착정보] getStationByUid   실패: {show(r.text, 200)}")
 
-    # 2-3. 노선정보조회: 노선명 → route_id → 경유 정류장 순서 (F-09의 심장)
+    # 2-3. 노선정보조회: 노선명 -> route_id -> 경유 정류장 순서 (F-09 의 심장)
     r = call("busRouteInfo/getBusRouteList", {"strSrch": PROBE_ROUTE_NAME}, key, mode)
     if looks_ok(r):
-        root = ET.fromstring(r.text)
-        items = root.findall(".//itemList")
+        items = ET.fromstring(r.text).findall(".//itemList")
         print(f"  [노선정보] getBusRouteList        '{PROBE_ROUTE_NAME}' 검색 {len(items)}건")
         if items:
-            route_id = (items[0].findtext("busRouteId") or "").strip()
-            print(f"      {items[0].findtext('busRouteNm')} busRouteId={route_id}")
+            route_id = _f(items[0], "busRouteId")
+            print(f"      {_f(items[0], 'busRouteNm')} busRouteId={route_id}")
     else:
         print(f"  [노선정보] getBusRouteList        실패: {show(r.text, 200)}")
 
@@ -227,20 +239,22 @@ def probe_services(key: str, mode: str) -> None:
         # 오퍼레이션명 오타('Staion')가 실제 스펙이다. 혹시 몰라 둘 다 시도한다.
         for op in ("busRouteInfo/getStaionByRoute", "busRouteInfo/getStationByRoute"):
             r = call(op, {"busRouteId": route_id}, key, mode)
-            if looks_ok(r):
-                save("getStaionByRoute", r.text)
-                root = ET.fromstring(r.text)
-                items = root.findall(".//itemList")
-                print(f"  [노선정보] {op.split('/')[1]:<20} 경유 정류장 {len(items)}개  <- route_stop 원천")
-                for it in items[:3]:
-                    g = lambda t: (it.findtext(t) or "").strip()  # noqa: E731
-                    print(f"      seq={g('seq')} {g('stationNm')} "
-                          f"arsId={g('arsId')} dir={g('direction')}")
-                print("      ! seq 와 direction 이 채워지는지가 관건이다.")
-                print("        direction 이 비면 상하행 구분을 다른 필드로 해야 한다")
-                print("        (계획서 §10-1: 반대 방향 버스를 추천하는 치명적 버그)")
-                break
-            print(f"  [노선정보] {op.split('/')[1]:<20} 실패: {show(r.text, 160)}")
+            if not looks_ok(r):
+                print(f"  [노선정보] {op.split('/')[1]:<20} 실패: {show(r.text, 160)}")
+                continue
+            save("getStaionByRoute", r.text)
+            items = ET.fromstring(r.text).findall(".//itemList")
+            print(
+                f"  [노선정보] {op.split('/')[1]:<20} "
+                f"경유 정류장 {len(items)}개  <- route_stop 원천"
+            )
+            for it in items[:3]:
+                print(
+                    f"      seq={_f(it, 'seq')} {_f(it, 'stationNm')} "
+                    f"station={_f(it, 'station')} dir={_f(it, 'direction')}"
+                )
+            print("      ! seq 와 direction 이 채워지는지가 관건이다.")
+            break
 
 
 def main() -> None:

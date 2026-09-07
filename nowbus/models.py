@@ -5,9 +5,9 @@ from enum import StrEnum
 
 
 class Catch(StrEnum):
-    SAFE = "SAFE"    # 여유 있음
+    SAFE = "SAFE"  # 여유 있음
     TIGHT = "TIGHT"  # 뛰어야 함
-    MISS = "MISS"    # 못 잡음
+    MISS = "MISS"  # 못 잡음
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +33,8 @@ class Arrival:
 
     route_id: str
     stop_id: str
-    eta_min: float           # 도착까지 남은 분
-    order: int               # 1차/2차 차량
+    eta_min: float  # 도착까지 남은 분
+    order: int  # 1차/2차 차량
     congestion: int | None = None
     is_last: bool = False
     is_estimated: bool = False  # headway로 추정한 값인지
@@ -67,3 +67,18 @@ class Plan:
     score: float
     congestion: int | None = None
     is_last: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RouteStopRow:
+    """노선 경유 정류장 1행. 수집 배치가 route_stop 테이블에 그대로 넣는다."""
+
+    route_id: str
+    route_name: str
+    stop_id: str
+    ars_id: str | None
+    stop_name: str
+    lat: float
+    lon: float
+    seq: int
+    direction: str | None
