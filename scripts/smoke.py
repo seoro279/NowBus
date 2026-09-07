@@ -10,21 +10,24 @@
 로컬 PC에서 실행해야 한다.
 
     cp .env.example .env      # NOWBUS_SEOUL_API_KEY 채우기
-    uv run python scripts/smoke.py
+    python scripts/smoke.py
 
 serviceKey 는 절대 출력하지 않는다. 로그/스크린샷으로 새는 것을 막는다.
 """
 
 from __future__ import annotations
 
-import json
+import getpass
 import os
 import pathlib
 import sys
 import xml.etree.ElementTree as ET
 from urllib.parse import quote, urlencode
 
-import httpx
+try:
+    import httpx
+except ModuleNotFoundError:
+    sys.exit("httpx 가 없다.  pip install httpx  를 먼저 실행할 것.")
 
 BASE = os.environ.get("NOWBUS_BUS_API_BASE", "http://ws.bus.go.kr/api/rest")
 FIXTURES = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures"
@@ -36,18 +39,45 @@ PROBE_ROUTE_NAME = "146"
 TIMEOUT = 10.0
 
 
+def _read_env_file() -> dict[str, str]:
+    """.env 를 읽는다. 메모장이 ANSI(cp949)나 BOM 으로 저장해도 깨지지 않게 한다."""
+    path = pathlib.Path(".env")
+    if not path.exists():
+        return {}
+    raw = path.read_bytes()
+    for enc in ("utf-8-sig", "utf-8", "cp949"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        text = raw.decode("utf-8", errors="ignore")
+
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip().lstrip("\ufeff")
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip("'\"")
+    return out
+
+
 def _load_key() -> str:
     key = os.environ.get("NOWBUS_SEOUL_API_KEY", "").strip()
     if not key:
-        # .env 를 직접 읽는다. pydantic-settings 없이도 돌게 하기 위함.
-        env = pathlib.Path(".env")
-        if env.exists():
-            for line in env.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line.startswith("NOWBUS_SEOUL_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip("'\"")
+        key = _read_env_file().get("NOWBUS_SEOUL_API_KEY", "")
     if not key:
-        sys.exit("NOWBUS_SEOUL_API_KEY 가 비어 있다. .env 를 채우고 다시 실행할 것.")
+        # .env 설정이 꼬였을 때를 위한 탈출구. 입력값은 화면에 찍히지 않는다.
+        print("NOWBUS_SEOUL_API_KEY 를 .env 에서 찾지 못했다.")
+        print("아래에 붙여넣으면 이번 실행에만 쓴다 (저장하지 않는다).")
+        try:
+            key = getpass.getpass("일반 인증키(Decoding): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            key = ""
+    if not key:
+        sys.exit("인증키가 없다. .env 의 NOWBUS_SEOUL_API_KEY 를 채우고 다시 실행할 것.")
     return key
 
 
