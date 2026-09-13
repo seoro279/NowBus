@@ -110,11 +110,40 @@ async def test_only_queries_stops_that_have_a_direct_route(repo, coords):
 
 
 async def test_respects_origin_stop_cap(repo, coords):
-    """MAX_ORIGIN_STOPS 상한. 없으면 강남에서 API 를 20번 부른다."""
+    """MAX_ORIGIN_STOPS 상한. 없으면 강남 반경 600m 에서 API 를 39번 부른다."""
     cfg = Settings(radius_origin_m=3000, max_origin_stops=2)
     provider = MockProvider({})
     await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, cfg)
     assert len(set(provider.asked)) <= 2
+
+
+async def test_cap_is_applied_after_finding_direct_routes(repo, coords):
+    """상한을 조합 탐색 **전에** 걸면 안 된다.
+
+    가까운 정류장에 직통이 없고 먼 정류장에만 있는 상황을 만든다. 거리순으로
+    먼저 자르면 후보가 0 이 되고, 조합을 찾은 뒤 자르면 정상적으로 나온다.
+
+    실측 근거: 강남역 반경 600m 에 정류장 39곳인데 시청행 직통이 있는 곳은
+    8곳뿐이고 거리순 상위 8곳과 거의 겹치지 않는다. 먼저 자르면 노선 9개 중
+    1개만 남았다.
+    """
+    # 146번이 지나지 않는 가짜 정류장을 7단지영업소 바로 옆에 심는다.
+    real = repo.get_stops([SANGGYE])[SANGGYE]
+    for i in range(5):
+        repo.conn.execute(
+            "INSERT INTO stop(stop_id, ars_id, name, lat, lon) VALUES (?,?,?,?,?)",
+            (f"FAKE{i}", f"9{i}", f"노선없는정류장{i}", real.lat + i * 1e-5, real.lon),
+        )
+    repo.conn.commit()
+
+    cfg = Settings(max_origin_stops=3)
+    provider = MockProvider({SANGGYE: [arr(SANGGYE, 8, 1, headway_min=10.0)]})
+    out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, cfg)
+
+    assert out, "가짜 정류장이 앞을 막아도 직통을 찾아야 한다"
+    assert all(not sid.startswith("FAKE") for sid in provider.asked), (
+        "직통 없는 정류장에는 API 를 쓰지 않는다"
+    )
 
 
 async def test_partial_failure_still_returns_results(repo, coords):

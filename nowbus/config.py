@@ -16,8 +16,11 @@ class Settings(BaseSettings):
     # --- 탐색 (설계서 D-6) ---
     radius_origin_m: int = 600
     radius_dest_m: int = 700
-    max_origin_stops: int = 8  # API 호출 예산. D-10, Phase 7에서 재검토
-    max_dest_stops: int = 12
+    # 실시간 API 호출 예산. 직통이 있는 승차 정류장 중 가까운 순으로 이만큼만
+    # 조회한다. 정류장 후보 자체를 줄이는 값이 아니다 (D-10, Phase 7에서 재검토).
+    max_origin_stops: int = 8
+    # 하차 정류장에는 상한이 없다. 외부 호출이 없어서 줄일 이유가 없고,
+    # 실측에서 12곳으로 제한했더니 강남역->시청 노선 9개 중 7개를 잃었다.
 
     # --- 판정 (설계서 D-7, §6.5) ---
     m_safe_min: float = 2.0

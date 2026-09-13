@@ -1,6 +1,7 @@
 # NowBus
 
-> **최종 갱신: 2026-09-08** · Phase 0·2 완료 / Phase 3 은 `planner.py` 만 남음 · 테스트 62개 통과
+> **최종 갱신: 2026-09-13** · Phase 0~3 완료 · 테스트 72개 통과
+> 서울 전역 데이터 적재 완료 — 노선 718개 / 정류장 12,897개 / 경유 41,688행
 
 현재 위치에서 지금 출발했을 때, **실제로 걸어서 닿을 수 있는** 정류장·버스 조합만
 추려서 목적지 도착이 가장 빠른 순으로 알려주는 개인용 도구.
@@ -18,28 +19,31 @@
 | Phase | 내용 | 상태 |
 |---|---|---|
 | 0 | 스캐폴딩 + API 스모크 테스트 | ✅ 완료 |
-| 1 | 정적 데이터 구축 (`route_stop`) | 🚧 `schema.sql` 만. **수집기 남음** |
+| 1 | 정적 데이터 구축 (`route_stop`) | ✅ 완료 (xlsx 적재, API 호출 0회) |
 | 2 | 오프라인 코어 (도보·직통조합) | ✅ 완료 |
-| 3 | 실시간 결합 (Provider·판정·랭킹) | 🚧 `planner.py` 만 남음 |
-| 4 | 서버 API | ⬜ |
+| 3 | 실시간 결합 (Provider·판정·랭킹) | ✅ 완료 |
+| 4 | 서버 API | ⬜ ← **다음** |
 | 5 | 모바일 웹 UI (PWA) | ⬜ |
 | 6 | 배포 & 실기기 검증 | ⬜ |
 | 7 | 실사용 검증 & 튜닝 | ⬜ |
 
-### 지금 막힌 지점
+### 동작하는 것
 
-**서울 전체 노선 ID 목록을 얻는 방법이 확인되지 않았다.** `getStaionByRoute` 는
-`busRouteId` 를 알아야 부르는데, `getBusRouteList` 는 검색어를 요구한다. 일 1,000건
-한도라 전수 조사도 부담이다.
+알고리즘 7단계(설계서 §6.1)가 전부 이어졌고, **서울 전역 데이터로 검증됐다.**
 
-집·회사 근처 정류장을 지나는 노선만 부분 수집하는 쪽이 실사용까지 빠르다
-(설계서 §12 대응). 서울 열린데이터광장 노선 목록의 ID 체계가 `busRouteId`
-(146번 = `100100025`)와 일치하는지 확인 중.
+```
+강남역 → 서울시청   실시간 API 8회, 총 162ms
 
-### 동작하는 것 / 아닌 것
+1. [SAFE ] 지하철2호선강남역  도보 7분
+     새벽A741번  9분 후 도착   여유 +2분
+     → 광화문역 하차, 도보 8분
+     총 28분
+...
+서로 다른 승차 정류장 3곳
+```
 
-알고리즘 7단계(설계서 §6.1) 중 6개가 구현됐다. 다만 **DB가 비어 있어 실제 요청은
-아직 빈 결과를 낸다.**
+실시간 부분은 목 Provider 로 돌린 것이다. 실제 API 는 개발 컨테이너에서 막혀 있어
+로컬에서 확인해야 한다 (Phase 4 이후).
 
 | 단계 | 구현 | 상태 |
 |---|---|---|
@@ -48,7 +52,7 @@
 | 3. 직통 조합 | `repo.find_direct_combos()` | ✅ |
 | 4. 실시간 도착 | `providers/seoul.py` | ✅ |
 | 5. 탑승 가능성 판정 | `core/catchability.py` | ✅ |
-| 6. 총 소요시간 | `core/planner.py` | ❌ |
+| 6. 총 소요시간 | `core/planner.py` | ✅ |
 | 7. 랭킹·다양성 | `core/ranking.py` | ✅ |
 
 ---
@@ -87,7 +91,20 @@ copy .env.example .env
 notepad .env
 ```
 
-### 3. 테스트
+### 3. 정적 데이터 적재
+
+[서울시 버스노선별 정류소정보](https://data.seoul.go.kr/dataList/OA-15067/S/1/datasetView.do)
+xlsx 를 받아 `data/raw/` 에 두고:
+
+```bash
+python -m nowbus.collectors.build_db "data/raw/서울시버스노선별정류소정보(20260902).xlsx"
+```
+
+3초면 끝나고 **API 호출이 0회**다. 이 파일 하나에 노선별 경유 순서가 전부 들어
+있어서, `getStaionByRoute` 를 노선 수(718개)만큼 부를 필요가 없다. 그렇게 했으면
+일일 한도 1,000건을 수집만으로 태웠을 것이다.
+
+### 4. 테스트
 
 ```bash
 uv sync                # 또는 pip install -e '.[dev]'
@@ -97,7 +114,7 @@ uv run ruff check .
 
 전부 오프라인이다. 실시간 API 호출 없이 저장된 픽스처로 돈다.
 
-### 4. 스모크 테스트 (선택 — 이미 1회 완료)
+### 5. 스모크 테스트 (선택 — 이미 1회 완료)
 
 ```bash
 python scripts/smoke.py
@@ -212,17 +229,17 @@ nowbus/
 ├── providers/
 │   ├── base.py         [x] ABC + 병렬 + 부분 실패 허용
 │   └── seoul.py        [x] 서울 TOPIS 파서
-├── collectors/         [ ] 정적 데이터 수집 배치
+├── collectors/         [x] xlsx → route_stop 적재
 ├── core/                   ★ 인터페이스에 무지한 순수 로직
 │   ├── walking.py      [x]
 │   ├── catchability.py [x]
 │   ├── ranking.py      [x]
-│   └── planner.py      [ ] 오케스트레이션
+│   └── planner.py      [x] 오케스트레이션
 ├── web/                [ ] FastAPI
 └── static/             [ ] Vanilla JS PWA
 
 scripts/smoke.py        [x] API 진단 도구
-tests/                  [x] 62개. 픽스처 기반이라 오프라인
+tests/                  [x] 72개. 픽스처 기반이라 오프라인
 ```
 
 핵심 원칙은 **Planner 가 인터페이스에 무지하다**는 것. FastAPI든 CLI든 `plan_now()`

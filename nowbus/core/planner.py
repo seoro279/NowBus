@@ -37,11 +37,14 @@ async def plan_now(
     provider: ArrivalProvider,
     cfg: Settings,
 ) -> list[Plan]:
-    # 1) 양쪽 모두 인근 정류장 후보를 복수로 전개한다.
-    #    stops_within 은 거리순 정렬이므로 앞에서 자르면 가까운 것부터 남는다.
-    #    상한이 없으면 강남 같은 곳에서 20곳이 잡혀 실시간 API 를 20번 부르게 된다.
-    origin_stops = repo.stops_within(*origin, cfg.radius_origin_m)[: cfg.max_origin_stops]
-    dest_stops = repo.stops_within(*dest, cfg.radius_dest_m)[: cfg.max_dest_stops]
+    # 1) 양쪽 모두 인근 정류장 후보를 복수로 전개한다. **여기서 자르지 않는다.**
+    #    거리순으로 먼저 잘라 버리면 직통이 있는 정류장을 통째로 놓친다. 실측:
+    #    강남역 반경 600m 에 정류장 39곳인데 시청행 직통이 있는 곳은 8곳뿐이고,
+    #    그 8곳은 거리순 상위 8곳과 거의 겹치지 않는다. 먼저 자르면 노선 9개 중
+    #    1개만 남는다. 목적지 쪽은 더 심해서 12곳으로 제한하면 9개 중 2개만 남았다.
+    #    전부 넣어도 조합 질의는 3~5ms 다. 자를 이유가 없다.
+    origin_stops = repo.stops_within(*origin, cfg.radius_origin_m)
+    dest_stops = repo.stops_within(*dest, cfg.radius_dest_m)
     if not origin_stops or not dest_stops:
         return []
 
@@ -56,11 +59,15 @@ async def plan_now(
     if not combos:
         return []
 
-    # 4) 실시간 도착 병렬 조회.
-    #    조합에 실제로 등장하는 정류장만 부른다. 직통이 없는 정류장까지 부르면
-    #    호출 예산만 태운다.
-    by_id = {s.stop_id: s for s in origin_stops}
-    boarding = [by_id[sid] for sid in {c.board_stop_id for c in combos} if sid in by_id]
+    # 3-1) 이제 자른다. 상한이 필요한 이유는 하나뿐 - 실시간 API 호출 예산이다.
+    #      그러니 '직통이 있는 승차 정류장' 중에서 가까운 순으로 자른다.
+    #      origin_stops 가 이미 거리순이므로 순서를 유지한 채 거르면 된다.
+    useful = {c.board_stop_id for c in combos}
+    boarding = [s for s in origin_stops if s.stop_id in useful][: cfg.max_origin_stops]
+    keep = {s.stop_id for s in boarding}
+    combos = [c for c in combos if c.board_stop_id in keep]
+
+    # 4) 실시간 도착 병렬 조회. 여기가 유일하게 외부 호출이 나가는 지점이다.
     arrivals = await provider.arrivals_at_stops(boarding)
 
     stop_by_id = {s.stop_id: s for s in origin_stops} | {s.stop_id: s for s in dest_stops}
