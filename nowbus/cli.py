@@ -210,5 +210,24 @@ def plan(
     _render(plans, origin, dest, ms)
 
 
+@app.command("serve")
+def serve(
+    host: str = typer.Option("0.0.0.0", help="0.0.0.0 이어야 폰에서 접속된다"),
+    port: int = typer.Option(8000),
+    reload: bool = typer.Option(False, "--reload"),
+) -> None:
+    """개발 서버를 띄운다. 배포는 Cloudflare Tunnel 등으로 HTTPS 를 씌운다."""
+    import uvicorn
+
+    cfg = Settings()
+    if cfg.api_token == "change-me":
+        typer.secho(
+            "경고: NOWBUS_API_TOKEN 이 기본값이다. .env 에서 바꿀 것.",
+            fg=typer.colors.YELLOW,
+        )
+    typer.echo(f"http://{host}:{port}  (토큰: X-Token 헤더 또는 ?token=)")
+    uvicorn.run("nowbus.web.app:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     app()

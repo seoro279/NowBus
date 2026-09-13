@@ -1,6 +1,6 @@
 # NowBus
 
-> **최종 갱신: 2026-09-13** · Phase 0~3 완료 · 테스트 72개 통과
+> **최종 갱신: 2026-09-13** · Phase 0~4 완료 · 테스트 87개 통과
 > 서울 전역 데이터 적재 완료 — 노선 718개 / 정류장 12,897개 / 경유 41,688행
 
 현재 위치에서 지금 출발했을 때, **실제로 걸어서 닿을 수 있는** 정류장·버스 조합만
@@ -22,8 +22,8 @@
 | 1 | 정적 데이터 구축 (`route_stop`) | ✅ 완료 (xlsx 적재, API 호출 0회) |
 | 2 | 오프라인 코어 (도보·직통조합) | ✅ 완료 |
 | 3 | 실시간 결합 (Provider·판정·랭킹) | ✅ 완료 |
-| 4 | 서버 API | ⬜ ← **다음** |
-| 5 | 모바일 웹 UI (PWA) | ⬜ |
+| 4 | 서버 API | ✅ 완료 |
+| 5 | 모바일 웹 UI (PWA) | ⬜ ← **다음** |
 | 6 | 배포 & 실기기 검증 | ⬜ |
 | 7 | 실사용 검증 & 튜닝 | ⬜ |
 
@@ -152,7 +152,31 @@ nowbus plan 집 회사
 > 이 명령만 실제 API 를 부른다. 개발 컨테이너에서는 막혀 있으므로 로컬 PC 에서
 > 실행할 것.
 
-### 6. 스모크 테스트 (선택 — 이미 1회 완료)
+### 6. 서버로 띄우기
+
+```bash
+nowbus serve                 # http://0.0.0.0:8000
+nowbus serve --reload        # 개발용
+```
+
+```bash
+curl -G --data-urlencode "from=집" --data-urlencode "to=회사" \
+     -H "X-Token: $NOWBUS_API_TOKEN" http://127.0.0.1:8000/api/plan
+```
+
+| 엔드포인트 | 용도 |
+|---|---|
+| `GET /api/plan?lat=&lon=&to=회사` | GPS 기반 |
+| `GET /api/plan?from=집&to=회사` | 즐겨찾기 (GPS 실패 폴백) |
+| `GET /api/places` · `POST /api/places` | 즐겨찾기 |
+| `POST /api/feedback` | 실측 도보시간 [F-11] |
+
+인증은 `X-Token` 헤더 또는 `?token=` 쿼리. 후자는 curl 로 찔러볼 때만 쓴다.
+
+> 한글 파라미터는 URL 인코딩해야 한다. `curl -G --data-urlencode` 를 쓰거나
+> 좌표(`lat`/`lon`/`to_lat`/`to_lon`)로 넘길 것.
+
+### 7. 스모크 테스트 (선택 — 이미 1회 완료)
 
 ```bash
 python scripts/smoke.py
@@ -260,7 +284,7 @@ nowbus/
 ├── config.py           [x] 설정·튜닝 파라미터
 ├── models.py           [x] 코어 dataclass
 ├── cache.py            [x] TTL 캐시
-├── schemas.py          [ ] pydantic 응답 스키마
+├── schemas.py          [x] API 계약 (pydantic)
 ├── db/
 │   ├── schema.sql      [x]
 │   └── repo.py         [x] 정적 조회 + 직통 조합 전개
@@ -274,11 +298,11 @@ nowbus/
 │   ├── ranking.py      [x]
 │   └── planner.py      [x] 오케스트레이션
 ├── cli.py              [x] 개발·검증용 (typer)
-├── web/                [ ] FastAPI
+├── web/                [x] FastAPI (app / deps / routes)
 └── static/             [ ] Vanilla JS PWA
 
 scripts/smoke.py        [x] API 진단 도구
-tests/                  [x] 72개. 픽스처 기반이라 오프라인
+tests/                  [x] 87개. 픽스처 기반이라 오프라인
 ```
 
 핵심 원칙은 **Planner 가 인터페이스에 무지하다**는 것. FastAPI든 CLI든 `plan_now()`
