@@ -38,6 +38,7 @@ class Arrival:
     congestion: int | None = None
     is_last: bool = False
     is_estimated: bool = False  # headway로 추정한 값인지
+    headway_min: float | None = None  # 같은 응답의 term. 3차 추정에 쓴다
 
 
 @dataclass(frozen=True, slots=True)

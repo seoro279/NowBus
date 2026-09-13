@@ -66,6 +66,7 @@ def parse_arrivals(xml_text: str, stop_id: str | None = None) -> list[Arrival]:
         resolved = stop_id or _text(it, "stId")
         if not route_id or not resolved:
             continue
+        headway = _int_or_none(_text(it, "term"))
         for order in (1, 2):
             msg = _text(it, f"arrmsg{order}")
             if not msg or any(bad in msg for bad in _NOT_RUNNING):
@@ -86,6 +87,7 @@ def parse_arrivals(xml_text: str, stop_id: str | None = None) -> list[Arrival]:
                     order=order,
                     congestion=_int_or_none(_text(it, f"congestion{order}")),
                     is_last=_text(it, f"isLast{order}") == "1",
+                    headway_min=float(headway) if headway else None,
                 )
             )
     return out
@@ -198,9 +200,3 @@ class SeoulProvider(ArrivalProvider):
             return []
         xml_text = await self._get("stationinfo/getStationByUid", {"arsId": stop.ars_id})
         return parse_arrivals(xml_text, stop_id=stop.stop_id)
-
-    async def headways_at_stop(self, stop: Stop) -> dict[str, float]:
-        if not stop.ars_id or stop.ars_id == "0":
-            return {}
-        xml_text = await self._get("stationinfo/getStationByUid", {"arsId": stop.ars_id})
-        return parse_headways(xml_text)
