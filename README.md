@@ -114,7 +114,34 @@ uv run ruff check .
 
 전부 오프라인이다. 실시간 API 호출 없이 저장된 픽스처로 돈다.
 
-### 5. 스모크 테스트 (선택 — 이미 1회 완료)
+### 5. 실제로 조회해보기
+
+```bash
+pip install -e .
+nowbus place add 집 37.6602 127.0637
+nowbus place add 회사 37.4979 127.0276
+nowbus plan 집 회사
+```
+
+좌표를 직접 줘도 된다: `nowbus plan 37.6602,127.0637 회사`
+
+튜닝 옵션: `--radius 800` `--top 8` `--m-safe 4`
+
+```
+집 -> 회사   07:51 기준  (812ms)
+
+1. [SAFE ] 지하철2호선강남역  도보 7분
+      741번  9분 후 도착   여유 +2분  (혼잡도 3)
+      -> 광화문역 하차, 도보 8분
+      08:26 도착 예상 (총 35분)
+...
+  서로 다른 승차 정류장 3곳
+```
+
+> 이 명령만 실제 API 를 부른다. 개발 컨테이너에서는 막혀 있으므로 로컬 PC 에서
+> 실행할 것.
+
+### 6. 스모크 테스트 (선택 — 이미 1회 완료)
 
 ```bash
 python scripts/smoke.py
@@ -235,6 +262,7 @@ nowbus/
 │   ├── catchability.py [x]
 │   ├── ranking.py      [x]
 │   └── planner.py      [x] 오케스트레이션
+├── cli.py              [x] 개발·검증용 (typer)
 ├── web/                [ ] FastAPI
 └── static/             [ ] Vanilla JS PWA
 
