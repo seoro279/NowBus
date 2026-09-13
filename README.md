@@ -1,6 +1,6 @@
 # NowBus
 
-> **최종 갱신: 2026-09-13** · Phase 0~4 완료 · 테스트 87개 통과
+> **최종 갱신: 2026-09-13** · Phase 0~5 완료 · 테스트 87개 통과
 > 서울 전역 데이터 적재 완료 — 노선 718개 / 정류장 12,897개 / 경유 41,688행
 
 현재 위치에서 지금 출발했을 때, **실제로 걸어서 닿을 수 있는** 정류장·버스 조합만
@@ -23,8 +23,8 @@
 | 2 | 오프라인 코어 (도보·직통조합) | ✅ 완료 |
 | 3 | 실시간 결합 (Provider·판정·랭킹) | ✅ 완료 |
 | 4 | 서버 API | ✅ 완료 |
-| 5 | 모바일 웹 UI (PWA) | ⬜ ← **다음** |
-| 6 | 배포 & 실기기 검증 | ⬜ |
+| 5 | 모바일 웹 UI (PWA) | ✅ 완료 (데스크톱 모바일 뷰 검증) |
+| 6 | 배포 & 실기기 검증 | ⬜ ← **다음** (D-9: 집 PC + Cloudflare Tunnel) |
 | 7 | 실사용 검증 & 튜닝 | ⬜ |
 
 ### 동작하는 것
@@ -152,7 +152,23 @@ nowbus plan 집 회사
 > 이 명령만 실제 API 를 부른다. 개발 컨테이너에서는 막혀 있으므로 로컬 PC 에서
 > 실행할 것.
 
-### 6. 서버로 띄우기
+### 6. 폰에서 쓰기
+
+```bash
+nowbus serve                 # http://0.0.0.0:8000
+```
+
+같은 와이파이의 폰에서 `http://<PC-IP>:8000` 으로 열린다. 단 **위치는 안 잡힌다** —
+iOS Safari 는 비보안 컨텍스트에서 `navigator.geolocation` 을 차단하고, 앱은 그
+경우 "HTTPS 가 아니라 위치를 쓸 수 없어요" 를 띄운다. 즐겨찾기 출발지 폴백으로는
+쓸 수 있다. 제대로 쓰려면 Phase 6 의 HTTPS 가 필요하다.
+
+첫 실행에 토큰을 물어본다. `.env` 의 `NOWBUS_API_TOKEN` 값을 넣으면
+localStorage 에 저장된다.
+
+캐시가 의심스러우면 `?nosw=1` 로 열어 서비스 워커와 캐시를 지운다.
+
+### 7. 서버 API 직접 호출
 
 ```bash
 nowbus serve                 # http://0.0.0.0:8000
@@ -176,7 +192,7 @@ curl -G --data-urlencode "from=집" --data-urlencode "to=회사" \
 > 한글 파라미터는 URL 인코딩해야 한다. `curl -G --data-urlencode` 를 쓰거나
 > 좌표(`lat`/`lon`/`to_lat`/`to_lon`)로 넘길 것.
 
-### 7. 스모크 테스트 (선택 — 이미 1회 완료)
+### 8. 스모크 테스트 (선택 — 이미 1회 완료)
 
 ```bash
 python scripts/smoke.py
@@ -299,7 +315,12 @@ nowbus/
 │   └── planner.py      [x] 오케스트레이션
 ├── cli.py              [x] 개발·검증용 (typer)
 ├── web/                [x] FastAPI (app / deps / routes)
-└── static/             [ ] Vanilla JS PWA
+└── static/             [x] Vanilla JS PWA (빌드 없음)
+    ├── index.html      [x] 화면 2개
+    ├── style.css       [x] 다크모드 · safe-area · 56px 터치
+    ├── app.js          [x] GPS 선획득 · 카드 · 신선도 · 폴백
+    ├── sw.js           [x] 앱 셸 (network-first)
+    └── icons/          [x] scripts/make_icons.py 로 생성
 
 scripts/smoke.py        [x] API 진단 도구
 tests/                  [x] 87개. 픽스처 기반이라 오프라인

@@ -77,12 +77,18 @@ async def get_plan(
     to_lat: float | None = Query(None, ge=-90, le=90),
     to_lon: float | None = Query(None, ge=-180, le=180),
     from_: str | None = Query(None, alias="from", description="GPS 실패 시 폴백"),
+    radius: int | None = Query(None, ge=100, le=2000, description="출발 반경(m). 재검색용"),
 ) -> PlanResponse:
     origin, origin_label = _resolve(repo, lat, lon, from_, "출발")
     dest, dest_label = _resolve(repo, to_lat, to_lon, to, "목적")
 
+    cfg = settings
+    if radius:
+        # 결과 0건일 때 프론트가 반경을 넓혀 다시 묻는다 (설계서 §10.3).
+        cfg = settings.model_copy(update={"radius_origin_m": radius, "radius_dest_m": radius + 100})
+
     now = datetime.now()
-    plans = await plan_now(origin, dest, repo, provider, settings)
+    plans = await plan_now(origin, dest, repo, provider, cfg)
     return PlanResponse(
         origin_label=origin_label,
         dest_label=dest_label,

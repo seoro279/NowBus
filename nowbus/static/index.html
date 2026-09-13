@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#111417">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NowBus">
+<title>NowBus</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ① 목적지 선택 -->
+<main id="home" class="screen">
+  <header class="home-head">
+    <h1>NowBus</h1>
+    <p id="gps" class="gps">위치 확인 중…</p>
+  </header>
+
+  <p class="ask">어디로 가세요?</p>
+  <div id="places" class="places"></div>
+
+  <button id="add-place" class="btn ghost">+ 장소 추가</button>
+  <button id="edit-token" class="link">토큰 설정</button>
+</main>
+
+<!-- ② 결과 -->
+<main id="result" class="screen" hidden>
+  <header class="result-head">
+    <button id="back" class="back" aria-label="뒤로">←</button>
+    <div class="trip">
+      <strong id="trip-label">—</strong>
+      <span id="freshness" class="fresh">—</span>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+  <p id="composition" class="composition" hidden></p>
+  <div id="cards" class="cards" aria-live="polite"></div>
+
+  <button id="refresh" class="btn refresh">새로고침</button>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
