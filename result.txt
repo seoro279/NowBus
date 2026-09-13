@@ -1,0 +1,41 @@
+BASE=http://ws.bus.go.kr/api/rest  key length=88 (값은 출력하지 않는다)
+
+========================================================================
+STEP 1  인증키 모드 확정 (Encoding vs Decoding)
+========================================================================
+  decoding  http=200 headerCd=0 headerMsg=정상적으로 처리되었습니다. -> OK
+  encoding  http=200 headerCd=0 headerMsg=정상적으로 처리되었습니다. -> OK
+
+  ==> 인증키는 'decoding' 방식으로 동작한다.
+      httpx params= 로 그냥 넘기면 된다. Provider 구현에 그대로 반영.
+
+========================================================================
+STEP 2  세 서비스 오퍼레이션 확인 + 픽스처 저장
+========================================================================
+  [정류소정보] getStationByPos      정류소 23개
+      강남역8번출구  arsId=22339 (37.4975009943, 127.0268505284) dist=79m
+      강남역9번출구  arsId=22167 (37.4977839964, 127.0266040758) dist=88m
+      강남역10번출구(미정차)  arsId=0 (37.4985952235, 127.0270218948) dist=92m
+      ! tmX/tmY 에 경도/위도를 넣었을 때 결과가 맞는지 확인할 것.
+  [버스도착정보] getStationByUid   arsId=22339 도착 5건
+         340  1차=곧 도착 / 2차=9분후[5번째 전]
+              traTime1=36s congestion=3 isLast=0 term=7min
+        1남양주  1차=23분후[20번째 전] / 2차=50분후[48번째 전]
+              traTime1=1371s congestion=0 isLast=0 term=40min
+        92광주  1차=10분후[10번째 전] / 2차=40분후[37번째 전]
+              traTime1=549s congestion=0 isLast=0 term=40min
+      ! 위 필드명이 실제와 다르면 providers/seoul.py 파싱을 맞춰야 한다.
+  [노선정보] getBusRouteList        '146' 검색 2건
+      146 busRouteId=100100025
+  [노선정보] getStaionByRoute     경유 정류장 135개  <- route_stop 원천
+      seq=1 7단지영업소 arsId=11502 dir=강남역
+      seq=2 상계10동우체국 arsId=11189 dir=강남역
+      seq=3 상계주공10단지상가 arsId=11271 dir=강남역
+      ! seq 와 direction 이 채워지는지가 관건이다.
+        direction 이 비면 상하행 구분을 다른 필드로 해야 한다
+        (계획서 §10-1: 반대 방향 버스를 추천하는 치명적 버그)
+
+========================================================================
+저장된 픽스처: C:\Users\doubt4230\NowBus\tests\fixtures
+.env 에 NOWBUS_SEOUL_KEY_MODE=decoding 를 기록해 두면 Provider 가 참조한다.
+========================================================================
