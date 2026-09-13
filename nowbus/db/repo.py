@@ -125,6 +125,24 @@ class StaticRepo:
             for r in rows
         }
 
+    def search_stops(self, keyword: str, limit: int = 20) -> list[tuple[Stop, int]]:
+        """정류장 이름 부분 검색. (정류장, 경유 노선 수) 를 돌려준다.
+
+        지도 앱에서 좌표를 캐내는 것보다 이게 빠르다. 12,897곳이 이미 DB 에 있다.
+        """
+        rows = self.conn.execute(
+            "SELECT s.stop_id, s.ars_id, s.name, s.lat, s.lon, "
+            "       COUNT(DISTINCT rs.route_id) AS n_routes "
+            "FROM stop s LEFT JOIN route_stop rs ON rs.stop_id = s.stop_id "
+            "WHERE s.name LIKE ? "
+            "GROUP BY s.stop_id ORDER BY n_routes DESC, s.name LIMIT ?",
+            (f"%{keyword}%", limit),
+        ).fetchall()
+        return [
+            (Stop(r["stop_id"], r["ars_id"], r["name"], r["lat"], r["lon"]), r["n_routes"])
+            for r in rows
+        ]
+
     # ------------------------------------------------------------ 즐겨찾기
     def get_place(self, name: str) -> tuple[float, float] | None:
         r = self.conn.execute("SELECT lat, lon FROM place WHERE name = ?", (name,)).fetchone()

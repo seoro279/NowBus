@@ -94,6 +94,26 @@ def db_stat() -> None:
     repo.close()
 
 
+@app.command("stops")
+def stops(
+    keyword: str = typer.Argument(..., help="정류장 이름 일부. 예: 상계, 강남역"),
+    limit: int = typer.Option(20, "--limit", "-n"),
+) -> None:
+    """정류장을 이름으로 찾아 좌표를 보여준다.
+
+    즐겨찾기에 넣을 좌표를 구할 때 쓴다. 집 바로 앞 정류장을 찾은 뒤, 그 좌표를
+    그대로 쓰지 말고 집 위치로 조금 옮기는 편이 정확하다 - 정류장 좌표를 그대로
+    쓰면 도보 시간이 0 으로 잡혀 탑승 가능성 판정이 무의미해진다.
+    """
+    repo = _repo(Settings())
+    found = repo.search_stops(keyword, limit)
+    if not found:
+        typer.echo(f"'{keyword}' 를 포함하는 정류장이 없다.")
+    for st, n in found:
+        typer.echo(f"  {st.lat:.6f},{st.lon:.6f}   {st.name}  (ARS {st.ars_id}, 노선 {n}개)")
+    repo.close()
+
+
 # ---------------------------------------------------------------- place
 @place_app.command("add")
 def place_add(name: str, lat: float, lon: float) -> None:
