@@ -1,0 +1,186 @@
+"""HTTP 라우트. Planner 를 부르고 스키마로 옮겨 담는 것 외에 로직이 없다."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from math import ceil, floor
+
+from fastapi import APIRouter, HTTPException, Query, status
+
+from nowbus.core.planner import plan_now
+from nowbus.db.repo import StaticRepo
+from nowbus.models import Catch, Plan, PlanSet
+from nowbus.schemas import (
+    Feedback,
+    Place,
+    PlaceCreate,
+    PlaceHitOut,
+    PlanItem,
+    PlanResponse,
+)
+from nowbus.web.deps import GeocoderDep, ProviderDep, RepoDep, SettingsDep, TokenDep
+
+router = APIRouter(prefix="/api")
+
+
+def _resolve(
+    repo: StaticRepo, lat: float | None, lon: float | None, name: str | None, what: str
+) -> tuple[tuple[float, float], str]:
+    """좌표가 오면 그걸 쓰고, 아니면 즐겨찾기에서 찾는다. 라벨도 함께 돌려준다."""
+    if lat is not None and lon is not None:
+        return (lat, lon), ("현재 위치" if what == "출발" else "지정 좌표")
+    if not name:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"{what}지가 없다. 좌표(lat/lon) 또는 즐겨찾기 이름을 줄 것.",
+        )
+    found = repo.get_place(name)
+    if found is None:
+        known = [n for n, _, _ in repo.list_places()]
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"'{name}' 즐겨찾기가 없다. 등록된 곳: {known}"
+        )
+    return found, name
+
+
+def _to_item(rank: int, p: Plan, now: datetime) -> PlanItem:
+    # 뛰는 시간은 올리고 여유는 내린다. 다른 필드처럼 반올림하면 '뛰어서 1분,
+    # 여유 1분' 처럼 실제보다 넉넉해 보이는 쪽으로 틀릴 수 있다.
+    run_min = ceil(p.run_to_board_min) if p.run_to_board_min is not None else None
+    margin = floor(p.margin_min) if p.catch is Catch.RUN else round(p.margin_min)
+    return PlanItem(
+        rank=rank,
+        board_stop_name=p.board.name,
+        board_stop_ars=p.board.ars_id,
+        board_lat=p.board.lat,
+        board_lon=p.board.lon,
+        walk_to_board_min=round(p.walk_to_board_min),
+        route_name=p.route.route_name,
+        eta_min=round(p.eta_min),
+        margin_min=margin,
+        catch=p.catch.value,
+        run_to_board_min=run_min,
+        alight_stop_name=p.alight.name,
+        walk_from_alight_min=round(p.walk_from_alight_min),
+        ride_min=round(p.ride_min),
+        total_min=round(p.total_min),
+        arrive_at=(now + timedelta(minutes=p.total_min)).strftime("%H:%M"),
+        congestion=p.congestion,
+        is_last=p.is_last,
+        is_estimated=p.is_estimated,
+    )
+
+
+def _warning(found: PlanSet) -> str | None:
+    if not found.best:
+        if found.sprint:
+            return "걸어서 잡을 수 있는 버스는 없어요. 뛰면 잡히는 것만 있어요"
+        return "지금 걸어서 탈 수 있는 직통 버스가 없어요"
+    if all(p.catch is Catch.MISS for p in found.best):
+        return "지금 나가면 다 놓쳐요"
+    return None
+
+
+@router.get("/plan", response_model=PlanResponse)
+async def get_plan(
+    repo: RepoDep,
+    provider: ProviderDep,
+    settings: SettingsDep,
+    _: TokenDep,
+    lat: float | None = Query(None, ge=-90, le=90),
+    lon: float | None = Query(None, ge=-180, le=180),
+    to: str | None = Query(None, description="목적지 즐겨찾기 이름"),
+    to_lat: float | None = Query(None, ge=-90, le=90),
+    to_lon: float | None = Query(None, ge=-180, le=180),
+    from_: str | None = Query(None, alias="from", description="GPS 실패 시 폴백"),
+    radius: int | None = Query(None, ge=100, le=2000, description="출발 반경(m). 재검색용"),
+) -> PlanResponse:
+    origin, origin_label = _resolve(repo, lat, lon, from_, "출발")
+    dest, dest_label = _resolve(repo, to_lat, to_lon, to, "목적")
+
+    cfg = settings
+    if radius:
+        # 결과 0건일 때 프론트가 반경을 넓혀 다시 묻는다 (설계서 §10.3).
+        cfg = settings.model_copy(update={"radius_origin_m": radius, "radius_dest_m": radius + 100})
+
+    now = datetime.now()
+    found = await plan_now(origin, dest, repo, provider, cfg)
+    return PlanResponse(
+        origin_label=origin_label,
+        dest_label=dest_label,
+        departed_at=now.strftime("%H:%M"),
+        generated_at=now.astimezone().isoformat(),
+        items=[_to_item(i, p, now) for i, p in enumerate(found.best, 1)],
+        sprint=[_to_item(i, p, now) for i, p in enumerate(found.sprint, 1)],
+        warning=_warning(found),
+    )
+
+
+@router.get("/geocode", response_model=list[PlaceHitOut])
+async def geocode(
+    geocoder: GeocoderDep,
+    settings: SettingsDep,
+    _: TokenDep,
+    q: str = Query(min_length=1, max_length=50, description="장소 이름·주소"),
+    lat: float | None = Query(None, ge=-90, le=90, description="있으면 가까운 순으로"),
+    lon: float | None = Query(None, ge=-180, le=180),
+) -> list[PlaceHitOut]:
+    """장소를 이름으로 찾아 좌표를 돌려준다 [F-19].
+
+    사용자가 좌표를 직접 입력하지 않게 하려고 만든 엔드포인트다. 즐겨찾기 등록은
+    여전히 POST /api/places 가 하고, 이건 좌표를 구해주는 역할만 한다.
+    """
+    near = (lat, lon) if lat is not None and lon is not None else None
+    hits = await geocoder.search(q, limit=settings.geocode_limit, near=near)
+    return [
+        PlaceHitOut(
+            name=h.name,
+            lat=h.lat,
+            lon=h.lon,
+            address=h.address,
+            source=h.source,
+            category=h.category,
+            distance_m=round(h.distance_m) if h.distance_m is not None else None,
+        )
+        for h in hits
+    ]
+
+
+@router.get("/places", response_model=list[Place])
+async def list_places(repo: RepoDep, _: TokenDep) -> list[Place]:
+    return [Place(name=n, lat=la, lon=lo) for n, la, lo in repo.list_places()]
+
+
+@router.post("/places", response_model=Place, status_code=status.HTTP_201_CREATED)
+async def create_place(body: PlaceCreate, repo: RepoDep, _: TokenDep) -> Place:
+    repo.save_place(body.name, body.lat, body.lon)
+    return Place(name=body.name, lat=body.lat, lon=body.lon)
+
+
+@router.delete("/places", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_place(
+    repo: RepoDep,
+    _: TokenDep,
+    name: str = Query(min_length=1, description="지울 즐겨찾기 이름"),
+) -> None:
+    """즐겨찾기를 지운다.
+
+    이름을 경로가 아니라 쿼리로 받는다. 장소 이름에 '/' 가 들어가면(막을 이유가
+    없다) 경로 파라미터로는 라우팅이 어긋난다.
+    """
+    if not repo.delete_place(name):
+        known = [n for n, _, _ in repo.list_places()]
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"'{name}' 즐겨찾기가 없다. 등록된 곳: {known}"
+        )
+
+
+@router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT)
+async def post_feedback(body: Feedback, repo: RepoDep, _: TokenDep) -> None:
+    """실측 도보시간 기록 [F-11]. 나중에 CALIB 보정에 쓴다."""
+    with repo.conn:
+        repo.conn.execute(
+            "INSERT INTO trip_log(created_at, stop_id, predicted_walk_min, actual_walk_min) "
+            "VALUES (datetime('now'), ?, ?, ?)",
+            (body.stop_id, body.predicted_walk_min, body.actual_walk_min),
+        )
