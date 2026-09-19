@@ -18,6 +18,7 @@ from nowbus.providers.geocode import (
     StopGeocoder,
     _parse_kakao,
     build_geocoder,
+    usable_kakao_key,
 )
 from nowbus.providers.seoul import parse_route_stops
 
@@ -235,3 +236,24 @@ class TestBuild:
         """lifespan 을 타지 않는 경우. 검색이 죽는 것보다 덜 찾는 게 낫다."""
         g = build_geocoder(repo, "K", None)
         assert [type(s) for s in g.sources] == [StopGeocoder]
+
+    async def test_a_non_ascii_key_is_ignored(self, repo):
+        """.env 에 안내문의 자리표시자('발급받은키')를 그대로 넣은 실제 사례.
+
+        HTTP 헤더는 ASCII 만 담는다. 그대로 넘기면 요청 경로에서
+        UnicodeEncodeError 가 터진다. 카카오만 빼고 정류장 검색은 살린다.
+        """
+        async with httpx.AsyncClient() as c:
+            g = build_geocoder(repo, "발급받은키", c)
+            assert [type(s) for s in g.sources] == [StopGeocoder]
+            assert await g.search("상계주공")
+
+
+class TestUsableKey:
+    def test_strips_surrounding_whitespace(self):
+        assert usable_kakao_key("  abc123  ") == "abc123"
+
+    def test_rejects_non_ascii_and_embedded_spaces(self):
+        assert usable_kakao_key("발급받은키") == ""
+        assert usable_kakao_key("abc 123") == ""
+        assert usable_kakao_key("") == ""

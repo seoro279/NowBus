@@ -37,15 +37,39 @@ FIXTURES = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
 
 def _key() -> str:
-    key = Settings().kakao_rest_key
-    if key:
-        return key
-    import getpass
+    key = Settings().kakao_rest_key.strip()
+    if not key:
+        import getpass
 
-    key = getpass.getpass("카카오 REST API 키 (화면에 안 보인다): ").strip()
+        key = getpass.getpass("카카오 REST API 키 (화면에 안 보인다): ").strip()
     if not key:
         sys.exit("키가 없으면 확인할 수 없다.")
+
+    # 키를 그대로 헤더에 넣기 전에 여기서 걸러낸다. ASCII 가 아니면 httpx 가
+    # 헤더를 만들다 UnicodeEncodeError 로 죽어서, 원인이 '키가 이상하다'라는 게
+    # 스택 트레이스에 묻힌다. 실제로 안내문의 '발급받은키' 를 그대로 넣은 사례가 있었다.
+    if not key.isascii():
+        sys.exit(
+            f".env 의 NOWBUS_KAKAO_REST_KEY 에 한글이 들어 있다: {_fingerprint(key)}\n"
+            "  안내문의 자리표시자가 아니라 카카오에서 받은 실제 키(영문+숫자)를 넣을 것."
+        )
+    if " " in key or "\t" in key:
+        sys.exit("키에 공백이 섞여 있다. 따옴표 없이 값만 붙여넣을 것.")
+    print(f"키 확인: {_fingerprint(key)}  (값은 출력하지 않는다)")
     return key
+
+
+def _fingerprint(key: str) -> str:
+    """키를 노출하지 않고 '무엇을 넣었는지'만 알려준다.
+
+    REST API 키는 32자 소문자 16진수다. 대시보드의 것과 모양이 다르면 여기서 보인다.
+    """
+    shape = (
+        "16진수 32자"
+        if len(key) == 32 and all(c in "0123456789abcdef" for c in key)
+        else "형식 불일치"
+    )
+    return f"{len(key)}자, {shape}"
 
 
 async def probe(key: str, query: str) -> int:
@@ -64,12 +88,17 @@ async def probe(key: str, query: str) -> int:
                 continue
 
             print(f"  HTTP {r.status_code}")
-            if r.status_code == 401:
-                print("  ! 키가 거부됐다. REST API 키인지 확인할 것 (JavaScript 키가 아니다).")
-                failures += 1
-                continue
             if r.status_code != 200:
-                print(f"  ! 본문: {r.text[:300]}")
+                # 본문을 반드시 찍는다. 카카오는 여기에 거부 이유를 적어 주고,
+                # 그게 없으면 'REST 키가 아니다' 와 '이 앱에 권한이 없다' 를
+                # 구분할 수 없다. 본문에 키는 들어 있지 않다.
+                print(f"  ! 본문: {r.text[:500]}")
+                if r.status_code == 401:
+                    print("  ! 401 은 키 거부다. 확인 순서:")
+                    print("    1) 카카오 개발자 > 내 애플리케이션 > 앱 키 > 'REST API 키'")
+                    print("       (JavaScript / Android / iOS / Admin 키가 아니다)")
+                    print("    2) .env 에 NOWBUS_KAKAO_REST_KEY 줄이 두 개면 아래 줄이 이긴다")
+                    print("    3) 앱에 '카카오맵' 또는 로컬 API 사용 설정이 필요한지 확인")
                 failures += 1
                 continue
 

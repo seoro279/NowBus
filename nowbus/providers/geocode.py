@@ -215,11 +215,27 @@ class ChainGeocoder(Geocoder):
         return out[:limit]
 
 
+def usable_kakao_key(raw: str) -> str:
+    """헤더에 넣어도 되는 키만 통과시킨다. 아니면 빈 문자열.
+
+    HTTP 헤더는 ASCII 만 담을 수 있어서, 한글이 섞인 값을 그대로 넘기면 httpx 가
+    헤더를 만들다 UnicodeEncodeError 를 던진다. .env 에 안내문의 자리표시자를
+    그대로 넣은 사례가 실제로 있었다. 그때 요청 경로에서 터지게 두지 않고
+    '카카오 없이 정류장 검색만' 으로 떨어뜨린다 - 검색이 통째로 죽는 것보다 낫다.
+    공백은 따옴표째 붙여넣은 경우라 함께 걸러낸다.
+    """
+    key = (raw or "").strip()
+    if not key or not key.isascii() or any(c.isspace() for c in key):
+        return ""
+    return key
+
+
 def build_geocoder(
     repo: StaticRepo, kakao_rest_key: str, client: httpx.AsyncClient | None
 ) -> Geocoder:
-    """정류장 검색은 항상, 카카오는 키와 클라이언트가 있을 때만."""
+    """정류장 검색은 항상, 카카오는 쓸 만한 키와 클라이언트가 있을 때만."""
     sources: list[Geocoder] = [StopGeocoder(repo)]
-    if kakao_rest_key and client is not None:
-        sources.append(KakaoGeocoder(kakao_rest_key, client))
+    key = usable_kakao_key(kakao_rest_key)
+    if key and client is not None:
+        sources.append(KakaoGeocoder(key, client))
     return ChainGeocoder(sources)
