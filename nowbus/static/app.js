@@ -389,6 +389,15 @@ if ('serviceWorker' in navigator) {
       .then(() => caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k)))))
       .then(() => alert('서비스 워커와 캐시를 지웠어요. 새로고침하세요.'));
   } else {
+    // 새 워커가 넘겨받으면(skipWaiting) 한 번만 새로고침한다. 그래야 폰에 떠 있던
+    // 화면이 옛 app.js 그대로 남지 않는다. 홈 화면에 추가한 PWA 는 탭을 닫는
+    // 일이 거의 없어서 이게 없으면 옛 화면이 며칠씩 살아 있는다.
+    let reloadedOnce = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadedOnce) return;
+      reloadedOnce = true;
+      location.reload();
+    });
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     });

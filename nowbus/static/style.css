@@ -50,6 +50,8 @@ body {
 /* ---------- 홈 ---------- */
 .home-head { padding: 24px 0 8px; }
 h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+/* 폰에 옛 화면이 남았는지 눈으로 확인하는 표시. 캐시 문제를 한 번 겪었다. */
+.build { font-size: 12px; font-weight: 500; color: var(--dim); vertical-align: 6px; }
 .gps { margin: 6px 0 0; color: var(--dim); font-size: 14px; }
 .gps.ok { color: var(--safe); }
 .gps.err { color: var(--miss); }

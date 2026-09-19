@@ -11,7 +11,10 @@
 // UI 가 바뀌면 올린다. activate 에서 옛 캐시를 지우므로 폰에 남은
 // 이전 app.js/style.css 가 오프라인에서 되살아나지 않는다.
 const VERSION = 'nowbus-v2';
-const SHELL = ['/', '/style.css', '/app.js', '/manifest.json', '/icons/icon-192.png'];
+// 버전 붙은 자산(/app.js?v=2)은 미리 캐시하지 않는다. 여기에 URL 을 박아두면
+// ?v= 를 올릴 때마다 같이 고쳐야 하고, 안 고치면 옛 URL 을 캐시한다.
+// fetch 핸들러가 network-first 로 받아오면서 알아서 채운다.
+const SHELL = ['/', '/manifest.json', '/icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

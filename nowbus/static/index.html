@@ -11,14 +11,16 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <link rel="icon" type="image/png" href="/icons/icon-192.png">
-<link rel="stylesheet" href="/style.css">
+<!-- ?v= 는 캐시 버스터다. 폰 브라우저가 옛 app.js 를 계속 내주는 일이 실제로
+     있었다. UI 를 고치면 이 숫자와 sw.js 의 VERSION, 아래 build 표시를 같이 올린다. -->
+<link rel="stylesheet" href="/style.css?v=2">
 </head>
 <body>
 
 <!-- ① 목적지 선택 -->
 <main id="home" class="screen">
   <header class="home-head">
-    <h1>NowBus</h1>
+    <h1>NowBus <span class="build">v2</span></h1>
     <p id="gps" class="gps">위치 확인 중…</p>
   </header>
 
@@ -70,6 +72,6 @@
   <div id="hits" class="hits" aria-live="polite"></div>
 </main>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=2"></script>
 </body>
 </html>
