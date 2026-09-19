@@ -1,6 +1,6 @@
 # NowBus
 
-> **최종 갱신: 2026-09-19** · Phase 0~6 완료, 7 진행 중 · 테스트 136개 통과
+> **최종 갱신: 2026-09-19** · Phase 0~6 완료, 7 진행 중 · 테스트 147개 통과
 > 서울 전역 데이터 적재 완료 — 노선 718개 / 정류장 12,897개 / 경유 41,688행
 
 현재 위치에서 지금 출발했을 때, **실제로 걸어서 닿을 수 있는** 정류장·버스 조합만
@@ -129,7 +129,7 @@ python -m nowbus.collectors.build_db "data/raw/서울시버스노선별정류소
 
 ```bash
 uv sync                # 또는 pip install -e '.[dev]'
-uv run pytest          # 136개
+uv run pytest          # 147개
 uv run ruff check .
 ```
 
@@ -403,7 +403,7 @@ nowbus/
 
 scripts/smoke.py        [x] 버스 API 진단 도구
 scripts/smoke_geocode.py [x] 카카오 로컬 응답 확인 (로컬에서 1회 필수)
-tests/                  [x] 136개. 픽스처 기반이라 오프라인
+tests/                  [x] 147개. 픽스처 기반이라 오프라인
 ```
 
 핵심 원칙은 **Planner 가 인터페이스에 무지하다**는 것. FastAPI든 CLI든 `plan_now()`
