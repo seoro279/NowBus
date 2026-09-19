@@ -1,9 +1,12 @@
 """장소 검색. 좌표를 사용자가 아니라 프로그램이 구한다 [F-19].
 
-카카오 파싱은 **손으로 만든 샘플**로 고정한다. 실제 응답을 받아본 게 아니다
-(개발 컨테이너에서 dapi.kakao.com 이 막혀 있다). 그래서 이 테스트가 증명하는
-것은 '문서에 적힌 모양이 오면 이렇게 읽는다'까지다. 실물 확인은 로컬에서
-scripts/smoke_geocode.py 로 하고, 응답이 다르면 픽스처와 파서를 같이 고친다.
+KEYWORD_SAMPLE 의 키 구성은 **실물 응답과 일치한다** (2026-09-19 로컬 확인).
+값만 픽스처용으로 바꿨다. ADDRESS_SAMPLE 은 아직 문서 기준이다 - 확인 당시
+질의가 주소가 아니어서 documents 가 0건이었다.
+
+개발 컨테이너에서는 dapi.kakao.com 이 막혀 있어 여기서 실물을 받을 수 없다.
+확인은 로컬에서 scripts/smoke_geocode.py 로 하고, 응답이 다르면 이 샘플과
+파서를 같이 고친다.
 """
 
 import httpx
@@ -35,6 +38,11 @@ KEYWORD_SAMPLE = {
             "x": "127.0276",
             "y": "37.4979",
             "distance": "412",
+            # 파서가 쓰지 않지만 실물에 오는 키들. 늘어도 깨지지 않는지 같이 고정한다.
+            "id": "1234567890",
+            "phone": "02-0000-0000",
+            "place_url": "http://place.map.kakao.com/1234567890",
+            "category_group_code": "CE7",
         }
     ],
     "meta": {"total_count": 1},
@@ -108,6 +116,11 @@ class TestKakaoParsing:
     def test_empty_and_malformed_bodies(self):
         assert _parse_kakao({}, "kakao-keyword") == []
         assert _parse_kakao({"documents": None}, "kakao-keyword") == []
+
+    def test_extra_fields_are_ignored(self):
+        """실물에는 id·phone·place_url 이 함께 온다. 모르는 키가 늘어도 읽혀야 한다."""
+        hit = _parse_kakao(KEYWORD_SAMPLE, "kakao-keyword")[0]
+        assert hit.name == "스타벅스 강남역중앙점"
 
     def test_missing_optional_fields_do_not_raise(self):
         body = {"documents": [{"place_name": "이름만", "x": "127.0", "y": "37.5"}]}

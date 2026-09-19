@@ -78,16 +78,22 @@ class StopGeocoder(Geocoder):
 class KakaoGeocoder(Geocoder):
     """카카오 로컬 API. 키워드(상호·건물명) + 주소 두 질의를 같이 던진다.
 
-    필드명은 카카오 개발자 문서 기준이다. **실제 응답으로 확인하지 못했다** -
-    개발 컨테이너에서 dapi.kakao.com 이 조직 이그레스 정책에 막혀 있다.
-    그래서 파싱을 방어적으로 썼고(없는 키는 건너뛴다), 로컬에서 한 번 확인하는
-    경로를 따로 뒀다:
+    keyword.json 은 **실물 응답으로 확인했다** (2026-09-19, 사용자 로컬).
+    documents 의 키는 정확히 이랬다:
+      address_name, category_group_code, category_group_name, category_name,
+      distance, id, phone, place_name, place_url, road_address_name, x, y
 
-        python scripts/smoke_geocode.py "강남역 스타벅스"
+    address.json 은 아직 확인하지 못했다. 확인 당시 질의가 주소가 아니어서
+    documents 가 0건이었다. 주소 검색 결과의 모양은 문서 기준으로 남아 있다.
 
-    이 스크립트가 원본 응답을 tests/fixtures/kakao_keyword.json 에 저장한다.
-    필드명이 다르면 그 픽스처를 갱신하고 _parse_* 를 고칠 것. 추측으로 고치지 말 것
-    (인계 메모 §3 과 같은 이유다).
+    개발 컨테이너에서는 dapi.kakao.com 이 조직 이그레스 정책에 막혀 있으므로
+    확인은 로컬에서 한다:
+
+        python scripts/smoke_geocode.py "세종대로 110"
+
+    이 스크립트가 원본 응답을 tests/fixtures/{keyword,address}_kakao.json 에
+    저장한다. 응답이 다르면 그 픽스처를 갱신하고 _parse_* 를 고칠 것.
+    추측으로 고치지 말 것 (인계 메모 §3 과 같은 이유다).
     """
 
     def __init__(self, rest_key: str, client: httpx.AsyncClient) -> None:
@@ -143,8 +149,10 @@ def _parse_kakao(body: dict, source: str) -> list[PlaceHit]:
     """카카오 로컬 응답 → PlaceHit.
 
     keyword.json 과 address.json 의 문서가 서로 다르다.
-      keyword: place_name, road_address_name, address_name, category_name, distance
-      address: address_name, road_address{address_name}, address{region_3depth_name}
+      keyword(실물 확인): place_name, road_address_name, address_name,
+        category_group_name, category_name, distance, id, phone, place_url, x, y
+      address(문서 기준): address_name, road_address{address_name},
+        address{region_3depth_name}, x, y
     공통으로 x(경도)·y(위도)가 문자열로 온다.
 
     없는 키는 전부 None 으로 흘린다. 좌표를 못 읽은 항목만 버린다.
