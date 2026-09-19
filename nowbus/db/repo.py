@@ -158,6 +158,16 @@ class StaticRepo:
         rows = self.conn.execute("SELECT name, lat, lon FROM place ORDER BY name").fetchall()
         return [(r["name"], r["lat"], r["lon"]) for r in rows]
 
+    def delete_place(self, name: str) -> bool:
+        """지웠으면 True, 그런 이름이 없었으면 False.
+
+        '있었는지'를 돌려주는 이유: 라우트가 404 와 204 를 가려야 한다. 오타로
+        지운 줄 알고 넘어가면 사용자는 왜 목록에 그대로 있는지 알 수 없다.
+        """
+        with self.conn:
+            cur = self.conn.execute("DELETE FROM place WHERE name = ?", (name,))
+        return cur.rowcount > 0
+
     def save_place(self, name: str, lat: float, lon: float) -> None:
         self.conn.execute(
             "INSERT INTO place(name, lat, lon) VALUES (?, ?, ?) "

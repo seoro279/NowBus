@@ -33,6 +33,7 @@
 |---|---|
 | 좌표를 몰라서 장소를 추가하기 어렵다 | **장소 이름·주소 검색** (`GET /api/geocode`, `nowbus search`, 앱의 '장소 추가' 화면) |
 | 1~2분 뒤 도착하는 버스가 목록에 없다. 뛰면 타는데 | **RUN 등급** — 걸어선 놓치지만 뛰면 잡히는 버스를 별도 칸에 따로 보여준다 |
+| 잘못 넣은 장소를 지울 수 없다 | **즐겨찾기 삭제** (`DELETE /api/places`, `nowbus place rm`, 홈의 '편집' 모드) |
 
 ### 동작하는 것
 
@@ -164,6 +165,8 @@ nowbus plan 집 회사
 
 정류장 이름만 보고 싶으면 `nowbus stops 상계주공` 이 그대로 남아 있다.
 
+장소 목록 관리: `nowbus place list` · `nowbus place rm 집`
+
 ```
 집 -> 회사   07:51 기준  (812ms)
 
@@ -220,7 +223,7 @@ curl -G --data-urlencode "from=집" --data-urlencode "to=회사" \
 | `GET /api/plan?lat=&lon=&to=회사` | GPS 기반 |
 | `GET /api/plan?from=집&to=회사` | 즐겨찾기 (GPS 실패 폴백) |
 | `GET /api/geocode?q=서울시청&lat=&lon=` | 장소 이름·주소 → 좌표 [F-19] |
-| `GET /api/places` · `POST /api/places` | 즐겨찾기 |
+| `GET /api/places` · `POST /api/places` · `DELETE /api/places?name=집` | 즐겨찾기 |
 | `POST /api/feedback` | 실측 도보시간 [F-11] |
 
 `/api/plan` 응답은 목록이 둘이다. `items` 는 걸어서 잡는 후보(최대 5개),

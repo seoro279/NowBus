@@ -241,3 +241,31 @@ class TestSprintResponse:
         # 본 목록은 여유 있는 뒤차를 그대로 들고 있어야 한다
         assert all(i["catch"] != "RUN" for i in body["items"])
         assert 12 in [i["eta_min"] for i in body["items"]]
+
+
+class TestDeletePlace:
+    """검색으로 추가가 쉬워지니 잘못 넣은 장소가 쌓인다. 지울 수 있어야 한다."""
+
+    async def test_delete_then_gone(self, client):
+        assert (await client.delete("/api/places", params={"name": "집"})).status_code == 204
+        names = {p["name"] for p in (await client.get("/api/places")).json()}
+        assert names == {"회사"}
+
+    async def test_unknown_name_is_404_not_silent(self, client):
+        """조용히 204 를 주면 오타로 지운 줄 알고 넘어간다."""
+        r = await client.delete("/api/places", params={"name": "없는곳"})
+        assert r.status_code == 404
+        assert "없는곳" in r.json()["detail"]
+
+    async def test_name_is_required(self, client):
+        assert (await client.delete("/api/places")).status_code == 422
+
+    async def test_guarded_by_token(self, anon):
+        r = await anon.delete("/api/places", params={"name": "집"})
+        assert r.status_code == 401
+
+    async def test_deleting_one_place_keeps_the_others_usable(self, client):
+        """지운 뒤에도 남은 장소로 조회가 된다. 목록만 건드려야 한다."""
+        await client.delete("/api/places", params={"name": "집"})
+        r = await client.get("/api/plan", params={"lat": 37.6632, "lon": 127.0637, "to": "회사"})
+        assert r.status_code == 200

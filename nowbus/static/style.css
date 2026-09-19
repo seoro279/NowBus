@@ -55,8 +55,22 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 .gps { margin: 6px 0 0; color: var(--dim); font-size: 14px; }
 .gps.ok { color: var(--safe); }
 .gps.err { color: var(--miss); }
-.ask { margin: 28px 0 12px; color: var(--dim); font-size: 15px; }
+.ask-row { display: flex; align-items: baseline; margin: 28px 0 12px; }
+.ask { margin: 0; color: var(--dim); font-size: 15px; }
+.link.edit { margin: 0 0 0 auto; padding: 4px 8px; text-decoration: none; }
 .places { display: grid; gap: 10px; }
+
+/* 편집 모드. 평소엔 삭제 버튼이 없다 - 아침에 목적지를 탭하다 잘못 누르면
+   안 되기 때문이다. '편집'을 누른 동안만 ✕ 가 붙는다. */
+.place-row { display: flex; gap: 8px; }
+.place-row .btn { flex: 1; }
+.place-row.editing .btn { pointer-events: none; opacity: 0.6; }
+.del {
+  flex: 0 0 var(--tap); min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--miss-bg); color: var(--miss);
+  font-size: 20px; font-weight: 700; cursor: pointer;
+}
 
 .btn {
   min-height: var(--tap); width: 100%;

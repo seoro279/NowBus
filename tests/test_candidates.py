@@ -143,3 +143,18 @@ class TestSearchOrder:
 
     def test_exact_name_wins(self, repo):
         assert repo.search_stops("상계주공7단지", 5)[0][0].name == "상계주공7단지"
+
+
+class TestPlaceDelete:
+    def test_reports_whether_it_existed(self, repo):
+        """라우트가 404 와 204 를 가리려면 이 반환값이 필요하다."""
+        repo.save_place("집", 37.5, 127.0)
+        assert repo.delete_place("집") is True
+        assert repo.delete_place("집") is False
+        assert repo.get_place("집") is None
+
+    def test_only_removes_the_named_place(self, repo):
+        repo.save_place("집", 37.5, 127.0)
+        repo.save_place("회사", 37.6, 127.1)
+        repo.delete_place("집")
+        assert [n for n, _, _ in repo.list_places()] == ["회사"]

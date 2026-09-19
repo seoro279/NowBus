@@ -6,6 +6,7 @@
     nowbus place add 집           검색해서 고른 뒤 등록
     nowbus place add 집 37.5 127.0   좌표를 이미 알 때
     nowbus place list
+    nowbus place rm 집
     nowbus plan 집 회사           서버 없이 코어 로직 직접 확인
 
 설계서 §8 원칙 3 덕분에 이 파일은 plan_now() 를 부르기만 한다. 서버가 생겨도
@@ -204,6 +205,26 @@ def place_add(
                 )
         repo.save_place(name, lat, lon)
         typer.echo(f"등록: {name} ({lat:.6f}, {lon:.6f})")
+    finally:
+        repo.close()
+
+
+@place_app.command("rm")
+def place_rm(
+    name: str = typer.Argument(..., help="지울 즐겨찾기 이름"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="확인 없이 지운다"),
+) -> None:
+    """즐겨찾기를 지운다."""
+    repo = _repo(Settings())
+    try:
+        found = repo.get_place(name)
+        if found is None:
+            known = [n for n, _, _ in repo.list_places()]
+            raise typer.BadParameter(f"'{name}' 이 없다. 등록된 곳: {known or '(없음)'}")
+        if not yes:
+            typer.confirm(f"'{name}' ({found[0]:.6f}, {found[1]:.6f}) 을 지울까?", abort=True)
+        repo.delete_place(name)
+        typer.echo(f"삭제: {name}")
     finally:
         repo.close()
 

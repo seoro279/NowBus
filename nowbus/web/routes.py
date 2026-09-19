@@ -157,6 +157,24 @@ async def create_place(body: PlaceCreate, repo: RepoDep, _: TokenDep) -> Place:
     return Place(name=body.name, lat=body.lat, lon=body.lon)
 
 
+@router.delete("/places", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_place(
+    repo: RepoDep,
+    _: TokenDep,
+    name: str = Query(min_length=1, description="지울 즐겨찾기 이름"),
+) -> None:
+    """즐겨찾기를 지운다.
+
+    이름을 경로가 아니라 쿼리로 받는다. 장소 이름에 '/' 가 들어가면(막을 이유가
+    없다) 경로 파라미터로는 라우팅이 어긋난다.
+    """
+    if not repo.delete_place(name):
+        known = [n for n, _, _ in repo.list_places()]
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"'{name}' 즐겨찾기가 없다. 등록된 곳: {known}"
+        )
+
+
 @router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT)
 async def post_feedback(body: Feedback, repo: RepoDep, _: TokenDep) -> None:
     """실측 도보시간 기록 [F-11]. 나중에 CALIB 보정에 쓴다."""

@@ -8,6 +8,7 @@
 let coords = null;       // {lat, lon, accuracy} - 진입 즉시 백그라운드로 채운다
 let gpsError = null;
 let places = [];
+let editing = false;   // 홈의 편집 모드. 이때만 삭제 버튼이 존재한다
 let lastResponse = null;
 let lastQuery = null;    // 새로고침·반경확대에 재사용
 let freshnessTimer = null;
@@ -28,14 +29,14 @@ function askToken(force) {
   return t.trim();
 }
 
-async function api(path, params, body) {
+async function api(path, params, body, method) {
   const url = new URL(path, location.origin);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v !== null && v !== undefined) url.searchParams.set(k, v);
   });
-  const init = { headers: { 'X-Token': getToken() } };
+  const init = { method: method || 'GET', headers: { 'X-Token': getToken() } };
   if (body !== undefined) {
-    init.method = 'POST';
+    init.method = method || 'POST';
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
@@ -104,24 +105,72 @@ function startGps() {
 /* ---------------------------------------------------------------- 홈 */
 async function loadPlaces() {
   const box = $('places');
+  editing = false;
+  $('edit-places').textContent = '편집';
   try {
     places = await api('/api/places');
   } catch (e) {
     box.innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+    $('edit-places').hidden = true;
     return;
   }
   if (!places.length) {
     box.innerHTML = '<p class="empty">장소를 먼저 추가해주세요</p>';
+    $('edit-places').hidden = true;
     return;
   }
   box.innerHTML = '';
   for (const p of places) {
-    const b = document.createElement('button');
-    b.className = 'btn';
-    b.textContent = p.name;
-    b.onclick = () => onDestination(p);
-    box.appendChild(b);
+    box.appendChild(placeRow(p));
   }
+  $('edit-places').hidden = false;
+}
+
+// 한 줄 = 목적지 버튼 (+ 편집 모드일 때 삭제 버튼).
+function placeRow(p) {
+  const row = document.createElement('div');
+  row.className = editing ? 'place-row editing' : 'place-row';
+
+  const b = document.createElement('button');
+  b.className = 'btn';
+  b.textContent = p.name;
+  b.onclick = () => onDestination(p);
+  row.appendChild(b);
+
+  if (editing) {
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.type = 'button';
+    del.textContent = '✕';
+    del.setAttribute('aria-label', `${p.name} 삭제`);
+    del.onclick = () => removePlace(p);
+    row.appendChild(del);
+  }
+  return row;
+}
+
+// 평소엔 삭제 버튼을 만들지 않는다. 아침에 목적지를 탭하다 잘못 누르면 안 된다.
+function setEditing(on) {
+  editing = on;
+  $('edit-places').textContent = on ? '완료' : '편집';
+  const box = $('places');
+  box.innerHTML = '';
+  for (const p of places) box.appendChild(placeRow(p));
+}
+
+async function removePlace(p) {
+  if (!confirm(`'${p.name}' 을 목록에서 지울까요?`)) return;
+  try {
+    await api('/api/places', { name: p.name }, undefined, 'DELETE');
+  } catch (e) {
+    return alert(e.message);
+  }
+  places = places.filter((x) => x.name !== p.name);
+  if (!places.length) {
+    setEditing(false);
+    return loadPlaces();
+  }
+  setEditing(editing);
 }
 
 // GPS 가 없으면 출발지를 먼저 물어본다 (설계서 §10.3 폴백).
@@ -291,7 +340,11 @@ function esc(s) {
 $('back').onclick = () => show('home');
 $('refresh').onclick = () => lastQuery && run(lastQuery.query, lastQuery.label);
 $('edit-token').onclick = () => { askToken(true); loadPlaces(); };
-$('add-place').onclick = () => openSearch();
+$('edit-places').onclick = () => setEditing(!editing);
+$('add-place').onclick = () => {
+  setEditing(false);   // 추가하고 돌아왔을 때 편집 모드가 켜져 있으면 헷갈린다
+  openSearch();
+};
 
 /* ------------------------------------------------------------ 장소 검색 */
 // 좌표를 사람이 알 리가 없다. 이름으로 찾아 프로그램이 좌표를 가져온다 [F-19].
