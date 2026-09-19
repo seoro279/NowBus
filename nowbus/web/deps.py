@@ -16,6 +16,7 @@ from fastapi import Depends, Header, HTTPException, Query, Request, status
 from nowbus.config import Settings
 from nowbus.db.repo import StaticRepo
 from nowbus.providers.base import ArrivalProvider
+from nowbus.providers.geocode import Geocoder, build_geocoder
 from nowbus.providers.seoul import SeoulProvider
 
 
@@ -65,6 +66,19 @@ def require_token(
 RepoDep = Annotated[StaticRepo, Depends(get_repo)]
 ProviderDep = Annotated[ArrivalProvider, Depends(get_provider)]
 TokenDep = Annotated[None, Depends(require_token)]
+
+
+async def get_geocoder(request: Request, settings: SettingsDep, repo: RepoDep) -> Geocoder:
+    """정류장 검색은 repo(요청 단위), 카카오는 app.state.client(앱 단위)를 쓴다.
+
+    클라이언트가 없으면(테스트처럼 lifespan 을 타지 않는 경우) 카카오 없이
+    정류장 검색만으로 동작한다. 장소 검색이 아예 안 되는 것보다 덜 찾는 게 낫다.
+    """
+    client = getattr(request.app.state, "client", None)
+    return build_geocoder(repo, settings.kakao_rest_key, client)
+
+
+GeocoderDep = Annotated[Geocoder, Depends(get_geocoder)]
 
 
 def build_provider(settings: Settings, client: httpx.AsyncClient) -> ArrivalProvider:

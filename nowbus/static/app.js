@@ -1,6 +1,6 @@
 /* NowBus 프론트엔드.
  *
- * 상태는 모듈 스코프 변수 몇 개면 충분하다. 화면이 두 개뿐이라 라우터도
+ * 상태는 모듈 스코프 변수 몇 개면 충분하다. 화면이 세 개뿐이라 라우터도
  * 상태관리 라이브러리도 얹지 않는다.
  */
 'use strict';
@@ -28,21 +28,36 @@ function askToken(force) {
   return t.trim();
 }
 
-async function api(path, params) {
+async function api(path, params, body) {
   const url = new URL(path, location.origin);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v !== null && v !== undefined) url.searchParams.set(k, v);
   });
-  const res = await fetch(url, { headers: { 'X-Token': getToken() } });
+  const init = { headers: { 'X-Token': getToken() } };
+  if (body !== undefined) {
+    init.method = 'POST';
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(url, init);
   if (res.status === 401) {
     askToken(true);
     throw new Error('토큰이 필요해요');
   }
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `요청 실패 (${res.status})`);
+    const err = await res.json().catch(() => ({}));
+    throw new Error(detailText(err) || `요청 실패 (${res.status})`);
   }
-  return res.json();
+  return res.status === 204 ? null : res.json();
+}
+
+// FastAPI 의 422 는 detail 이 배열이다. 그대로 표시하면 [object Object] 가 뜬다.
+function detailText(err) {
+  const d = err && err.detail;
+  if (!d) return '';
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) return d.map((e) => e.msg || '').filter(Boolean).join(', ');
+  return '';
 }
 
 /* ---------------------------------------------------------------- GPS */
@@ -128,6 +143,7 @@ async function run(query, label) {
   $('trip-label').textContent = label;
   $('banner').hidden = true;
   $('composition').hidden = true;
+  $('sprint-box').hidden = true;
   $('freshness').textContent = '조회 중…';
   $('cards').innerHTML = '<div class="skeleton"></div>'.repeat(3);
   try {
@@ -142,6 +158,18 @@ async function run(query, label) {
 function render(data) {
   const cards = $('cards');
   const banner = $('banner');
+
+  // 뛰어야 하는 후보를 맨 위에 따로 놓는다. 1~2분 뒤 도착하는 버스라 제일 급하고,
+  // 본 목록에 섞으면 '여유 있음'과 구분이 안 된다.
+  const sprintBox = $('sprint-box');
+  const sprint = $('sprint');
+  sprint.innerHTML = '';
+  if (data.sprint && data.sprint.length) {
+    for (const it of data.sprint) sprint.appendChild(card(it));
+    sprintBox.hidden = false;
+  } else {
+    sprintBox.hidden = true;
+  }
 
   if (!data.items.length) {
     cards.innerHTML = '<p class="empty">지금 걸어서 탈 수 있는 직통 버스가 없어요</p>';
@@ -181,7 +209,12 @@ function render(data) {
   startFreshness(data.generated_at);
 }
 
-const GRADE = { SAFE: '✓ 여유', TIGHT: '⚠ 뛰어야 함', MISS: '✕ 놓침' };
+const GRADE = {
+  SAFE: '✓ 여유',
+  TIGHT: '⚠ 서둘러야 함',
+  RUN: '🏃 뛰면 잡음',
+  MISS: '✕ 놓침',
+};
 
 function card(it) {
   const el = document.createElement('article');
@@ -192,10 +225,16 @@ function card(it) {
   if (it.congestion) tags.push(`혼잡도 ${it.congestion}`);
   if (it.is_estimated) tags.push('배차간격 추정');
 
+  // RUN 이면 실제로 쓰는 시간은 뛰는 시간이다. 도보 시간도 같이 보여줘야
+  // '안 뛰면 몇 분인지'를 알고 판단할 수 있다.
+  const move = it.catch === 'RUN' && it.run_to_board_min !== null
+    ? `뛰어서 ${it.run_to_board_min}분 <s>도보 ${it.walk_to_board_min}분</s>`
+    : `도보 ${it.walk_to_board_min}분`;
+
   el.innerHTML = `
     <div class="stop-row">
       <button class="stop" type="button">${esc(it.board_stop_name)}</button>
-      <span class="walk">도보 ${it.walk_to_board_min}분</span>
+      <span class="walk">${move}</span>
     </div>
     <span class="grade ${it.catch}">${GRADE[it.catch]} ${fmtMargin(it)}</span>
     <p class="route">${esc(it.route_name)}번 <span class="eta">${it.eta_min}분 후</span></p>
@@ -208,8 +247,10 @@ function card(it) {
 }
 
 function fmtMargin(it) {
-  if (it.catch === 'MISS') return '';
-  return it.margin_min >= 0 ? `${it.margin_min}분` : '';
+  // 0분은 적지 않는다. '뛰면 잡음 0분' 은 등급만 읽어도 아는 사실을 숫자로
+  // 되풀이하면서 여유가 있다는 착각만 준다.
+  if (it.catch === 'MISS' || it.margin_min <= 0) return '';
+  return `${it.margin_min}분`;
 }
 
 // [F-18] 도보 안내는 지도앱에 위임한다. 지도를 직접 그리지 않는다.
@@ -237,9 +278,8 @@ function startFreshness(iso) {
 
 /* ---------------------------------------------------------------- 화면 */
 function show(which) {
-  $('home').hidden = which !== 'home';
-  $('result').hidden = which !== 'result';
-  if (which === 'home') clearInterval(freshnessTimer);
+  for (const id of ['home', 'result', 'search']) $(id).hidden = id !== which;
+  if (which !== 'result') clearInterval(freshnessTimer);
 }
 
 function esc(s) {
@@ -251,24 +291,93 @@ function esc(s) {
 $('back').onclick = () => show('home');
 $('refresh').onclick = () => lastQuery && run(lastQuery.query, lastQuery.label);
 $('edit-token').onclick = () => { askToken(true); loadPlaces(); };
-$('add-place').onclick = async () => {
-  const name = window.prompt('장소 이름 (예: 집)');
-  if (!name) return;
-  const here = coords ? `${coords.lat.toFixed(6)},${coords.lon.toFixed(6)}` : '';
-  const raw = window.prompt('좌표 "위도,경도"', here);
-  if (!raw) return;
-  const [lat, lon] = raw.split(',').map((v) => parseFloat(v.trim()));
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return alert('좌표 형식이 잘못됐어요');
+$('add-place').onclick = () => openSearch();
+
+/* ------------------------------------------------------------ 장소 검색 */
+// 좌표를 사람이 알 리가 없다. 이름으로 찾아 프로그램이 좌표를 가져온다 [F-19].
+function openSearch() {
+  show('search');
+  $('hits').innerHTML = '<p class="empty">장소 이름이나 주소를 입력하세요</p>';
+  $('search-q').value = '';
+  $('search-q').focus();
+}
+
+$('search-back').onclick = () => show('home');
+
+$('search-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $('search-q').value.trim();
+  if (!q) return;
+  const box = $('hits');
+
+  // 좌표를 직접 붙여넣는 길은 남겨둔다. 지도앱에서 복사해 온 경우.
+  const raw = q.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/);
+  if (raw) {
+    return showHits([{ name: q, lat: +raw[1], lon: +raw[2], address: '직접 입력한 좌표', source: 'raw' }]);
+  }
+
+  box.innerHTML = '<div class="skeleton"></div>'.repeat(2);
   try {
-    await fetch('/api/places', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Token': getToken() },
-      body: JSON.stringify({ name: name.trim(), lat, lon }),
-    });
+    const params = { q };
+    if (coords) { params.lat = coords.lat; params.lon = coords.lon; }
+    showHits(await api('/api/geocode', params));
+  } catch (err) {
+    box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+  }
+};
+
+function showHits(hits) {
+  const box = $('hits');
+  box.innerHTML = '';
+  if (!hits.length) {
+    box.innerHTML = '<p class="empty">못 찾았어요. 다른 이름이나 주소로 찾아보세요</p>';
+    return;
+  }
+  for (const h of hits) {
+    const b = document.createElement('button');
+    b.className = 'hit';
+    b.type = 'button';
+    const dist = h.distance_m !== null && h.distance_m !== undefined
+      ? `<span class="hit-dist">${fmtDist(h.distance_m)}</span>` : '';
+    b.innerHTML = `
+      <span class="hit-name">${esc(h.name)}${h.source === 'stop' ? ' <em>정류장</em>' : ''}</span>
+      <span class="hit-addr">${esc(h.address || '')}</span>${dist}`;
+    b.onclick = () => savePlace(h);
+    box.appendChild(b);
+  }
+}
+
+function fmtDist(m) {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
+}
+
+async function savePlace(hit) {
+  // 정류장 좌표를 출발지로 쓰면 도보 시간이 0 에 가깝게 잡혀 판정이 무의미해진다.
+  if (hit.source === 'stop' &&
+      !confirm(`'${hit.name}' 는 정류장 위치예요.\n출발지로 쓰면 도보 시간이 0분으로 잡혀요. 그대로 저장할까요?`)) {
+    return;
+  }
+  const name = window.prompt('저장할 이름 (예: 집, 회사)', hit.name.slice(0, 20));
+  if (!name || !name.trim()) return;
+  try {
+    await api('/api/places', null, { name: name.trim().slice(0, 20), lat: hit.lat, lon: hit.lon });
+    show('home');
     loadPlaces();
   } catch (e) {
     alert(e.message);
   }
+}
+
+// 집처럼 '지금 내가 있는 곳'을 저장할 때가 제일 흔하다. 검색을 건너뛴다.
+$('use-here').onclick = () => {
+  if (!coords) return alert(gpsError || '아직 위치를 못 잡았어요');
+  savePlace({
+    name: '현재 위치',
+    lat: coords.lat,
+    lon: coords.lon,
+    address: `오차 ${Math.round(coords.accuracy)}m`,
+    source: 'gps',
+  });
 };
 
 /* ---------------------------------------------------------------- SW */

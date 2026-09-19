@@ -155,3 +155,89 @@ class TestFeedback:
         n = repo.conn.execute("SELECT COUNT(*) FROM trip_log").fetchone()[0]
         repo.close()
         assert n == 1
+
+
+class TestGeocode:
+    """좌표 대신 이름으로 장소를 찾는다 [F-19]. 키 없이도 정류장 검색은 된다."""
+
+    async def test_finds_places_by_name(self, client):
+        r = await client.get("/api/geocode", params={"q": "상계주공"})
+        assert r.status_code == 200
+        hits = r.json()
+        assert hits
+        assert all("상계주공" in h["name"] for h in hits)
+        assert all(h["source"] == "stop" for h in hits)
+
+    async def test_returns_coordinates_ready_to_save(self, client):
+        """검색 결과를 그대로 /api/places 로 넘길 수 있어야 한다."""
+        hit = (await client.get("/api/geocode", params={"q": "상계주공7단지"})).json()[0]
+        r = await client.post(
+            "/api/places", json={"name": "테스트장소", "lat": hit["lat"], "lon": hit["lon"]}
+        )
+        assert r.status_code == 201
+
+    async def test_distance_is_filled_when_location_is_given(self, client):
+        params = {"q": "상계주공7단지", "lat": 37.5, "lon": 127.0}
+        hits = (await client.get("/api/geocode", params=params)).json()
+        assert hits[0]["distance_m"] is not None
+        assert isinstance(hits[0]["distance_m"], int)
+
+    async def test_no_match_is_an_empty_list(self, client):
+        r = await client.get("/api/geocode", params={"q": "존재하지않는장소이름"})
+        assert r.status_code == 200 and r.json() == []
+
+    async def test_empty_query_is_422(self, client):
+        assert (await client.get("/api/geocode", params={"q": ""})).status_code == 422
+
+    async def test_guarded_by_token(self, anon):
+        assert (await anon.get("/api/geocode", params={"q": "시청"})).status_code == 401
+
+
+class TestSprintResponse:
+    """걸어선 놓치지만 뛰면 잡히는 버스가 응답에 따로 실린다."""
+
+    async def test_sprint_field_always_exists(self, client):
+        body = (await client.get("/api/plan", params={"from": "집", "to": "회사"})).json()
+        assert "sprint" in body and isinstance(body["sprint"], list)
+
+    async def test_imminent_bus_appears_in_sprint(self, app, client, tmp_path):
+        """정류장에서 약 145m(도보 2.8분 / 뛰어서 1.3분) 지점에서 2분 뒤 오는 버스."""
+
+        class Imminent(ArrivalProvider):
+            def __init__(self):
+                super().__init__(0)
+
+            async def _fetch(self, stop: Stop) -> list[Arrival]:
+                # 한 정류장에만 도착정보를 준다. 다른 정류장까지 2분 뒤 차를 깔면
+                # 노선이 하나뿐인 픽스처에서 '더 멀리 걸어가 타는 게 총 시간은 짧은'
+                # 조합이 생겨서 이 테스트가 보려는 게 가려진다.
+                if stop.stop_id != SANGGYE:
+                    return []
+                return [
+                    Arrival("100100025", stop.stop_id, 2.0, 1),
+                    Arrival("100100025", stop.stop_id, 12.0, 2),
+                ]
+
+        app.state.provider = Imminent()
+        repo = StaticRepo(str(tmp_path / "t.db"))
+        row = repo.conn.execute(
+            "SELECT lat, lon FROM stop WHERE stop_id = ?", (SANGGYE,)
+        ).fetchone()
+        repo.close()
+
+        body = (
+            await client.get(
+                "/api/plan",
+                params={"lat": row["lat"] + 0.0013, "lon": row["lon"], "to": "회사"},
+            )
+        ).json()
+
+        assert body["sprint"], "뛰면 잡을 수 있는 버스가 나와야 한다"
+        s = body["sprint"][0]
+        assert s["catch"] == "RUN"
+        assert s["eta_min"] == 2
+        assert isinstance(s["run_to_board_min"], int)
+        assert s["run_to_board_min"] < s["walk_to_board_min"]
+        # 본 목록은 여유 있는 뒤차를 그대로 들고 있어야 한다
+        assert all(i["catch"] != "RUN" for i in body["items"])
+        assert 12 in [i["eta_min"] for i in body["items"]]

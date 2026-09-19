@@ -10,8 +10,9 @@ from nowbus.models import Catch, Plan
 
 @dataclass(frozen=True, slots=True)
 class Weights:
-    tight: float = 3.0  # '뛰어야 함' 벌점 (분 환산)
+    tight: float = 3.0  # '걸어서 간신히' 벌점 (분 환산)
     walk: float = 0.2  # 도보 기피 성향
+    run: float = 8.0  # '뛰어야 함' 벌점. RUN 후보끼리의 정렬에만 영향을 준다
     transfer: float = 0.0  # MVP 는 무환승이라 항상 0
 
 
@@ -19,11 +20,20 @@ DEFAULT_WEIGHTS = Weights()
 
 
 def score_plan(plan: Plan, w: Weights) -> float:
-    return (
-        plan.total_min
-        + (w.tight if plan.catch is Catch.TIGHT else 0.0)
-        + w.walk * (plan.walk_to_board_min + plan.walk_from_alight_min)
-    )
+    """작을수록 좋다. 단위는 '체감 분'이다.
+
+    RUN 벌점을 8분으로 크게 둔 것은 본 목록에서 밀어내려는 의도가 아니다. RUN
+    후보는 애초에 본 목록에 들어가지 않는다(PlanSet 이 분리한다). 이 벌점은
+    RUN 끼리 비교할 때 '조금 덜 뛰는 쪽'을 앞세우고, 혹시 두 목록을 합쳐 보는
+    코드가 생겨도 뛰는 후보가 걷는 후보를 이기지 못하게 하는 안전장치다.
+    """
+    if plan.catch is Catch.TIGHT:
+        penalty = w.tight
+    elif plan.catch is Catch.RUN:
+        penalty = w.run
+    else:
+        penalty = 0.0
+    return plan.total_min + penalty + w.walk * (plan.walk_to_board_min + plan.walk_from_alight_min)
 
 
 def _dedupe(plans: list[Plan]) -> list[Plan]:

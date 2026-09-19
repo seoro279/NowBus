@@ -129,3 +129,17 @@ def test_stops_within_is_distance_sorted(repo):
     near = repo.stops_within(row["lat"], row["lon"], 600)
     dists = [haversine_m(row["lat"], row["lon"], s.lat, s.lon) for s in near]
     assert dists == sorted(dists)
+
+
+class TestSearchOrder:
+    """검색어로 시작하는 이름이 먼저 온다. 장소 추가 화면의 첫 줄을 결정한다."""
+
+    def test_prefix_match_comes_before_a_middle_match(self, repo):
+        names = [s.name for s, _ in repo.search_stops("상계주공", 8)]
+        assert names[0].startswith("상계주공")
+        middle = [i for i, n in enumerate(names) if not n.startswith("상계주공")]
+        prefix = [i for i, n in enumerate(names) if n.startswith("상계주공")]
+        assert not middle or min(middle) > max(prefix)
+
+    def test_exact_name_wins(self, repo):
+        assert repo.search_stops("상계주공7단지", 5)[0][0].name == "상계주공7단지"

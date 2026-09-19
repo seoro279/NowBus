@@ -8,7 +8,9 @@
  * /api/* 는 절대 캐시하지 않는다. 실시간 도착정보가 캐시되면 이 프로그램의
  * 존재 이유가 사라진다.
  */
-const VERSION = 'nowbus-v1';
+// UI 가 바뀌면 올린다. activate 에서 옛 캐시를 지우므로 폰에 남은
+// 이전 app.js/style.css 가 오프라인에서 되살아나지 않는다.
+const VERSION = 'nowbus-v2';
 const SHELL = ['/', '/style.css', '/app.js', '/manifest.json', '/icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {

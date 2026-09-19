@@ -21,6 +21,7 @@ async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     async with httpx.AsyncClient(timeout=settings.http_timeout_sec) as client:
         # Provider 는 앱 수명 동안 하나. TTL 캐시와 커넥션 풀을 공유해야 한다.
+        app.state.client = client  # 장소 검색(지오코더)도 같은 커넥션 풀을 쓴다
         app.state.provider = build_provider(settings, client)
         yield
 

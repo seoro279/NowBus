@@ -9,9 +9,11 @@
   --safe: #0f7b48;
   --tight: #9a6100;
   --miss: #b3261e;
+  --run: #0b5cad;
   --safe-bg: #e6f4ec;
   --tight-bg: #fdf3e0;
   --miss-bg: #fdeceb;
+  --run-bg: #e7f0fd;
   --tap: 56px;
 }
 @media (prefers-color-scheme: dark) {
@@ -25,9 +27,11 @@
     --safe: #57d093;
     --tight: #ffc75c;
     --miss: #ff8a80;
+    --run: #8fc0ff;
     --safe-bg: #16301f;
     --tight-bg: #332609;
     --miss-bg: #34191a;
+    --run-bg: #132840;
   }
 }
 
@@ -96,6 +100,7 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 }
 .card.SAFE  { border-left-color: var(--safe); }
 .card.TIGHT { border-left-color: var(--tight); }
+.card.RUN   { border-left-color: var(--run); }
 .card.MISS  { border-left-color: var(--miss); opacity: 0.72; }
 
 /* 판독 우선순위: 정류장 이름 > 여유 등급 > 노선번호 > 도착시각 */
@@ -114,6 +119,7 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 }
 .grade.SAFE  { background: var(--safe-bg);  color: var(--safe); }
 .grade.TIGHT { background: var(--tight-bg); color: var(--tight); }
+.grade.RUN   { background: var(--run-bg);   color: var(--run); }
 .grade.MISS  { background: var(--miss-bg);  color: var(--miss); }
 
 .route { font-size: 17px; font-weight: 600; margin: 6px 0 0; }
@@ -123,9 +129,47 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 .tags { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 .tags span { margin-right: 8px; }
 
+/* ---------- 뛰면 잡는 버스 ---------- */
+/* 1~2분 뒤 도착이라 제일 급하다. 본 목록과 시각적으로 확실히 갈라 놓는다.
+   같은 카드 컴포넌트를 쓰고 테두리만 다르게 해서 읽는 법을 새로 배우지 않게 한다. */
+.sprint-box {
+  margin: 0 0 16px; padding: 12px 12px 14px;
+  border: 1px dashed var(--run); border-radius: 16px; background: var(--run-bg);
+}
+.sprint-title {
+  margin: 0 0 10px; font-size: 14px; font-weight: 700; color: var(--run);
+}
+.sprint-title::before { content: "🏃 "; }
+.walk s { color: var(--dim); opacity: 0.7; margin-left: 4px; }
+
 .empty { text-align: center; padding: 48px 16px; color: var(--dim); }
 .skeleton {
   height: 116px; border-radius: 16px; border: 1px solid var(--line);
   background: var(--card); animation: pulse 1.2s ease-in-out infinite;
 }
 @keyframes pulse { 50% { opacity: 0.5; } }
+
+/* ---------- 장소 검색 ---------- */
+.search-form { display: flex; gap: 8px; margin-bottom: 10px; }
+.search-form input {
+  flex: 1; min-height: var(--tap); padding: 0 14px;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--card); color: var(--ink); font-size: 17px;
+}
+.search-form .btn { width: auto; padding: 0 20px; }
+.hits { display: grid; gap: 8px; margin-top: 14px; }
+.hit {
+  display: grid; gap: 2px; width: 100%; min-height: var(--tap);
+  padding: 12px 14px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--card); color: var(--ink);
+}
+.hit:active { transform: scale(0.99); }
+.hit-name { font-size: 17px; font-weight: 600; }
+.hit-name em {
+  font-style: normal; font-size: 11px; font-weight: 600;
+  color: var(--dim); border: 1px solid var(--line);
+  border-radius: 6px; padding: 1px 5px; vertical-align: 2px;
+}
+.hit-addr { font-size: 13px; color: var(--dim); }
+.hit-dist { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }

@@ -19,8 +19,9 @@ class PlanItem(BaseModel):
     walk_to_board_min: int
     route_name: str
     eta_min: int
-    margin_min: int
-    catch: Literal["SAFE", "TIGHT", "MISS"]
+    margin_min: int  # catch=RUN 이면 '뛰었을 때'의 여유다
+    catch: Literal["SAFE", "TIGHT", "RUN", "MISS"]
+    run_to_board_min: int | None = None  # RUN 후보에만 채워진다
     alight_stop_name: str
     walk_from_alight_min: int
     ride_min: int
@@ -37,6 +38,9 @@ class PlanResponse(BaseModel):
     departed_at: str  # "08:41"
     generated_at: str  # ISO8601. 클라이언트가 '몇 초 전'을 표시한다
     items: list[PlanItem]
+    # 걸어선 놓치지만 뛰면 잡히는 버스. items 와 **겹칠 수 있다** - 같은 정류장의
+    # 같은 노선이 '뛰면 1분 뒤 차 / 걸으면 9분 뒤 차'로 양쪽에 나오는 게 정상이다.
+    sprint: list[PlanItem] = []
     warning: str | None = None
 
 
@@ -50,6 +54,18 @@ class PlaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=20)
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
+
+
+class PlaceHitOut(BaseModel):
+    """장소 검색 결과 1건. 프론트는 이걸 그대로 /api/places 로 넘긴다."""
+
+    name: str
+    lat: float
+    lon: float
+    address: str | None = None
+    source: str = ""
+    category: str | None = None
+    distance_m: int | None = None
 
 
 class Feedback(BaseModel):

@@ -68,8 +68,8 @@ async def test_end_to_end(repo, coords):
     provider = MockProvider({SANGGYE: [arr(SANGGYE, 8, 1, headway_min=10.0)]})
     out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, Settings())
 
-    assert out, "직통 조합이 나와야 한다"
-    p = out[0]
+    assert out.best, "직통 조합이 나와야 한다"
+    p = out.best[0]
     assert p.route.route_id == ROUTE
     assert p.board.stop_id == SANGGYE
     assert p.catch is Catch.SAFE
@@ -86,7 +86,8 @@ async def test_unreachable_bus_is_dropped(repo, coords):
     here = offset(coords(SANGGYE), 400)  # 도보 약 7.8분
     provider = MockProvider({SANGGYE: [arr(SANGGYE, 0.2, 1)]})  # 다음 차 정보 없음
     out = await plan_now(here, coords(GANGNAM9), repo, provider, Settings())
-    assert out == []
+    assert out.best == []
+    assert out.sprint == [], "도보 8분 거리는 뛰어도 12초 안에 못 간다"
 
 
 async def test_next_bus_is_used_when_the_first_is_missed(repo, coords):
@@ -94,9 +95,9 @@ async def test_next_bus_is_used_when_the_first_is_missed(repo, coords):
     here = offset(coords(SANGGYE), 400)
     provider = MockProvider({SANGGYE: [arr(SANGGYE, 0.2, 1), arr(SANGGYE, 15, 2)]})
     out = await plan_now(here, coords(GANGNAM9), repo, provider, Settings())
-    assert out
-    assert out[0].eta_min == 15
-    assert out[0].catch is Catch.SAFE
+    assert out.best
+    assert out.best[0].eta_min == 15
+    assert out.best[0].catch is Catch.SAFE
 
 
 async def test_only_queries_stops_that_have_a_direct_route(repo, coords):
@@ -140,7 +141,7 @@ async def test_cap_is_applied_after_finding_direct_routes(repo, coords):
     provider = MockProvider({SANGGYE: [arr(SANGGYE, 8, 1, headway_min=10.0)]})
     out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, cfg)
 
-    assert out, "가짜 정류장이 앞을 막아도 직통을 찾아야 한다"
+    assert out.best, "가짜 정류장이 앞을 막아도 직통을 찾아야 한다"
     assert all(not sid.startswith("FAKE") for sid in provider.asked), (
         "직통 없는 정류장에는 API 를 쓰지 않는다"
     )
@@ -158,15 +159,15 @@ async def test_partial_failure_still_returns_results(repo, coords):
     provider = MockProvider(table, fail={near[0].stop_id})
 
     out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, cfg)
-    assert out, "한 곳이 실패해도 나머지로 결과가 나와야 한다"
-    assert all(p.board.stop_id != near[0].stop_id for p in out)
+    assert out.best, "한 곳이 실패해도 나머지로 결과가 나와야 한다"
+    assert all(p.board.stop_id != near[0].stop_id for p in out.best)
 
 
 async def test_no_stops_nearby(repo, coords):
     """제주도 좌표. 반경 안에 정류장이 없다."""
     provider = MockProvider({})
     out = await plan_now((33.5, 126.5), coords(GANGNAM9), repo, provider, Settings())
-    assert out == []
+    assert not out
     assert provider.asked == []
 
 
@@ -175,7 +176,7 @@ async def test_no_direct_route(repo, coords):
     provider = MockProvider({})
     # 같은 방향 뒤쪽에서 앞쪽으로 = seq 감소 = 직통 없음
     out = await plan_now(coords(GANGNAM9), coords(SANGGYE), repo, provider, Settings())
-    assert out == []
+    assert not out
 
 
 async def test_top_n_and_diversity_applied(repo, coords):
@@ -184,9 +185,98 @@ async def test_top_n_and_diversity_applied(repo, coords):
     near = repo.stops_within(*coords(SANGGYE), 2000)
     table = {s.stop_id: [arr(s.stop_id, 6, 1, headway_min=10.0)] for s in near}
     out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider_of(table), cfg)
-    assert len(out) <= cfg.top_n
-    assert [p.score for p in out] == sorted(p.score for p in out)
+    assert len(out.best) <= cfg.top_n
+    assert [p.score for p in out.best] == sorted(p.score for p in out.best)
 
 
 def provider_of(table):
     return MockProvider(table)
+
+
+class TestSprint:
+    """'1~2분 뒤 도착하는 버스가 목록에 안 나온다'는 실사용 불만에 대한 회귀 테스트.
+
+    도보 2.9분 / 뛰어서 1.4분 지점에서 2분 뒤 도착하는 버스 - 걷기로는 놓치지만
+    뛰면 잡는다. 예전에는 이 차를 건너뛰고 다음 차만 보여줬다.
+    """
+
+    HERE = 150  # 정류장에서 북쪽 150m
+
+    async def test_imminent_bus_is_offered_as_a_sprint(self, repo, coords):
+        here = offset(coords(SANGGYE), self.HERE)
+        provider = MockProvider({SANGGYE: [arr(SANGGYE, 2, 1), arr(SANGGYE, 12, 2)]})
+        out = await plan_now(here, coords(GANGNAM9), repo, provider, Settings())
+
+        assert out.sprint, "뛰면 잡을 수 있는 버스가 나와야 한다"
+        s = out.sprint[0]
+        assert s.catch is Catch.RUN
+        assert s.eta_min == 2
+        assert s.run_to_board_min is not None
+        assert s.run_to_board_min < s.walk_to_board_min
+        assert s.margin_min == pytest.approx(2 - s.run_to_board_min)
+
+    async def test_walking_candidate_survives_alongside_the_sprint(self, repo, coords):
+        """둘 다 나와야 한다. '뛰면 2분 뒤 차, 안 뛰면 12분 뒤 차' 가 동시에 사실이다."""
+        here = offset(coords(SANGGYE), self.HERE)
+        provider = MockProvider({SANGGYE: [arr(SANGGYE, 2, 1), arr(SANGGYE, 12, 2)]})
+        out = await plan_now(here, coords(GANGNAM9), repo, provider, Settings())
+
+        assert [p.eta_min for p in out.best if p.board.stop_id == SANGGYE] == [12]
+        assert [p.eta_min for p in out.sprint] == [2]
+
+    async def test_sprint_total_uses_run_time_not_walk_time(self, repo, coords):
+        """뛰는 후보의 총 소요시간은 뛰는 시간으로 재야 한다. 도보로 재면 과대평가된다."""
+        here = offset(coords(SANGGYE), self.HERE)
+        provider = MockProvider({SANGGYE: [arr(SANGGYE, 2, 1), arr(SANGGYE, 12, 2)]})
+        out = await plan_now(here, coords(GANGNAM9), repo, provider, Settings())
+        s = out.sprint[0]
+        assert s.total_min == pytest.approx(
+            max(s.eta_min, s.run_to_board_min) + s.ride_min + s.walk_from_alight_min
+        )
+        assert s.total_min < out.best[0].total_min
+
+    async def test_far_stops_are_never_sprint_candidates(self, repo, coords):
+        """MAX_RUN_MIN 상한. 3분 넘게 전력질주하라는 추천은 하지 않는다."""
+        here = offset(coords(SANGGYE), 400)  # 도보 약 7.8분, 뛰어도 3.7분
+        provider = MockProvider({SANGGYE: [arr(SANGGYE, 4, 1), arr(SANGGYE, 20, 2)]})
+        out = await plan_now(here, coords(GANGNAM9), repo, provider, Settings())
+        assert out.sprint == []
+
+    async def test_no_sprint_when_walking_is_enough(self, repo, coords):
+        """정류장 바로 앞이면 뛸 이유가 없다. 뛰는 목록은 비어야 한다."""
+        provider = MockProvider({SANGGYE: [arr(SANGGYE, 5, 1, headway_min=10.0)]})
+        out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, Settings())
+        assert out.best
+        assert out.sprint == []
+
+    async def test_sprint_is_dropped_when_it_saves_nothing(self):
+        """뛰어도 더 빠르지 않으면 보여주지 않는다. rank 가 아니라 이 규칙이 거른다."""
+        from nowbus.core.planner import _rank_sprints
+
+        def fake(total, catch=Catch.RUN, stop_id="A", route_id="R"):
+            from nowbus.models import Plan, Route, Stop
+
+            st = Stop(stop_id, stop_id, stop_id, 37.5, 127.0)
+            return Plan(
+                board=st,
+                alight=Stop("D", "D", "D", 37.6, 127.0),
+                route=Route(route_id, route_id),
+                walk_to_board_min=3.0,
+                walk_from_alight_min=2.0,
+                eta_min=2.0,
+                ride_min=total - 5.0,
+                total_min=total,
+                margin_min=0.6,
+                catch=catch,
+                score=0.0,
+                run_to_board_min=1.4,
+            )
+
+        cfg = Settings()
+        slower = fake(30.0)
+        faster = fake(20.0)
+        best = [fake(25.0, catch=Catch.SAFE, stop_id="B", route_id="R2")]
+        assert _rank_sprints([slower], best, cfg) == []
+        assert len(_rank_sprints([faster], best, cfg)) == 1
+        # 편한 후보가 아예 없으면 뛰는 게 유일한 수단이므로 남긴다.
+        assert len(_rank_sprints([slower], [], cfg)) == 1

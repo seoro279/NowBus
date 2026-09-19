@@ -40,10 +40,34 @@
   </header>
 
   <div id="banner" class="banner" hidden></div>
+
+  <!-- 걸어선 놓치지만 뛰면 잡히는 버스. 본 목록과 섞지 않는다. -->
+  <section id="sprint-box" class="sprint-box" hidden>
+    <h2 class="sprint-title">지금 뛰면 잡을 수 있어요</h2>
+    <div id="sprint" class="cards"></div>
+  </section>
+
   <p id="composition" class="composition" hidden></p>
   <div id="cards" class="cards" aria-live="polite"></div>
 
   <button id="refresh" class="btn refresh">새로고침</button>
+</main>
+
+<!-- ③ 장소 검색해서 추가 -->
+<main id="search" class="screen" hidden>
+  <header class="result-head">
+    <button id="search-back" class="back" aria-label="뒤로">←</button>
+    <div class="trip"><strong>장소 추가</strong></div>
+  </header>
+
+  <form id="search-form" class="search-form">
+    <input id="search-q" type="search" inputmode="search" enterkeyhint="search"
+           autocomplete="off" placeholder="장소 이름·주소 (예: 서울시청)" />
+    <button class="btn" type="submit">검색</button>
+  </form>
+
+  <button id="use-here" class="btn ghost">현재 위치를 장소로 저장</button>
+  <div id="hits" class="hits" aria-live="polite"></div>
 </main>
 
 <script src="/app.js"></script>

@@ -2,7 +2,7 @@
 
 import pytest
 
-from nowbus.core.catchability import judge, pick_boardable
+from nowbus.core.catchability import judge, pick_boardable, pick_sprint
 from nowbus.models import Arrival, Catch
 
 
@@ -84,3 +84,54 @@ def test_m_safe_is_configurable():
     a4 = pick_boardable([arr(7, 1)], walk_min=4.0, m_safe=4.0)
     assert a2[1] is Catch.SAFE
     assert a4[1] is Catch.TIGHT
+
+
+class TestRunTier:
+    """실사용 불만: 도보 3분 정류장에 1분 뒤 오는 버스가 목록에 없다.
+
+    걷기 기준으로는 MISS 라 pick_boardable() 이 건너뛴다. 뛰면 잡히는 차는
+    pick_sprint() 가 따로 집는다.
+    """
+
+    def test_judge_returns_run_between_tight_and_miss(self):
+        # 걸어서는 1분 늦지만(margin=-1) 뛰면 0.5분 남는다
+        assert judge(-1.0, m_safe=2.0, run_margin_min=0.5) is Catch.RUN
+
+    def test_judge_stays_miss_when_running_is_not_enough(self):
+        assert judge(-1.0, m_safe=2.0, run_margin_min=-0.3) is Catch.MISS
+
+    def test_judge_without_run_info_is_unchanged(self):
+        """뛰는 시간을 모르는 호출부는 RUN 을 만들어낼 수 없어야 한다."""
+        assert judge(-1.0, m_safe=2.0) is Catch.MISS
+
+    def test_run_never_outranks_walking(self):
+        """여유가 있으면 RUN 이 아니라 SAFE/TIGHT 다. 순서가 뒤집히면 안 된다."""
+        assert judge(3.0, run_margin_min=10.0) is Catch.SAFE
+        assert judge(0.5, run_margin_min=10.0) is Catch.TIGHT
+
+    def test_picks_imminent_bus_you_can_run_to(self):
+        """도보 3분 / 뛰어서 1.4분 / 버스 2분 후 → 뛰면 잡는다."""
+        got = pick_sprint([arr(2, 1), arr(11, 2)], walk_min=3.0, run_min=1.4)
+        assert got is not None
+        a, catch = got
+        assert a.order == 1 and catch is Catch.RUN
+
+    def test_no_sprint_when_walking_already_works(self):
+        """걸어서 잡히는 차가 있으면 뛸 이유가 없다."""
+        assert pick_sprint([arr(5, 1)], walk_min=3.0, run_min=1.4) is None
+
+    def test_skips_a_bus_that_even_running_cannot_catch(self):
+        """1차는 12초 뒤라 뛰어도 못 잡고, 2차는 뛰면 잡힌다."""
+        got = pick_sprint([arr(0.2, 1), arr(2.0, 2)], walk_min=3.0, run_min=1.4)
+        assert got is not None and got[0].order == 2
+
+    def test_no_sprint_when_nothing_is_reachable(self):
+        assert pick_sprint([arr(0.2, 1)], walk_min=3.0, run_min=1.4) is None
+
+    def test_does_not_estimate_a_third_bus(self):
+        """존재를 모르는 차를 위해 뛰라고 할 수는 없다. 배차간격 추정을 하지 않는다."""
+        assert pick_sprint([arr(0.1, 1, is_last=False)], walk_min=3.0, run_min=1.4) is None
+
+    def test_empty_and_zero_run_time(self):
+        assert pick_sprint([], walk_min=3.0, run_min=1.4) is None
+        assert pick_sprint([arr(2, 1)], walk_min=3.0, run_min=0.0) is None

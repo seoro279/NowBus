@@ -36,3 +36,27 @@ def walk_minutes(
     """
     d_effective = haversine_m(lat1, lon1, lat2, lon2) * detour
     return d_effective / speed_m_per_min * calib
+
+
+def run_minutes(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+    *,
+    speed_m_per_min: float = 140.0,
+    detour: float = 1.30,
+    calib: float = 1.0,
+) -> float:
+    """뛰어서 갈 때의 소요 분. 우회 보정과 개인 보정계수는 도보와 같이 쓴다.
+
+    도보와 다른 건 속도뿐이므로 walk_minutes 를 그대로 재사용한다. 별 함수로
+    두는 이유는 호출부에서 '이건 뛰는 시간'임이 드러나야 하기 때문이다.
+
+    **신호등 대기는 모델에 없다.** 실제로는 횡단보도 하나에서 다 잃을 수 있다.
+    그래서 이 값으로 잡은 후보는 본 추천 목록에 섞지 않고 따로 낸다 - 뛸지 말지는
+    사용자가 창밖을 보고 정한다.
+    """
+    return walk_minutes(
+        lat1, lon1, lat2, lon2, speed_m_per_min=speed_m_per_min, detour=detour, calib=calib
+    )

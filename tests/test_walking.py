@@ -2,7 +2,7 @@
 
 import pytest
 
-from nowbus.core.walking import haversine_m, walk_minutes
+from nowbus.core.walking import haversine_m, run_minutes, walk_minutes
 
 SEOUL_CITY_HALL = (37.5665, 126.9780)
 BUSAN_CITY_HALL = (35.1796, 129.0756)
@@ -60,3 +60,17 @@ def test_detour_never_shortens():
     args = (37.5, 127.0, 37.51, 127.01)
     straight = haversine_m(*args) / 67.0
     assert walk_minutes(*args) >= straight
+
+
+def test_run_is_faster_than_walk_by_the_speed_ratio():
+    """뛰는 시간은 속도 비율만큼만 줄어든다. 우회 보정은 그대로 적용된다."""
+    args = (37.5, 127.0, 37.503, 127.002)
+    walk = walk_minutes(*args, speed_m_per_min=67.0)
+    run = run_minutes(*args, speed_m_per_min=140.0)
+    assert run == pytest.approx(walk * 67.0 / 140.0)
+
+
+def test_run_keeps_the_personal_calibration():
+    """CALIB 은 사람에 대한 보정이므로 뛰는 시간에도 같이 걸려야 한다."""
+    args = (37.5, 127.0, 37.503, 127.002)
+    assert run_minutes(*args, calib=2.0) == pytest.approx(run_minutes(*args) * 2)

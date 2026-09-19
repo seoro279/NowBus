@@ -129,14 +129,20 @@ class StaticRepo:
         """정류장 이름 부분 검색. (정류장, 경유 노선 수) 를 돌려준다.
 
         지도 앱에서 좌표를 캐내는 것보다 이게 빠르다. 12,897곳이 이미 DB 에 있다.
+
+        정렬은 '이름이 얼마나 정확히 맞는지'가 먼저다. 노선 수만으로 줄 세우면
+        "상계주공" 을 찾을 때 '노원역5번출구.상계주공6단지' 가 '상계주공10단지'
+        앞에 온다 - 검색어로 시작하는 이름이 사람이 찾던 것에 가깝다.
         """
         rows = self.conn.execute(
             "SELECT s.stop_id, s.ars_id, s.name, s.lat, s.lon, "
             "       COUNT(DISTINCT rs.route_id) AS n_routes "
             "FROM stop s LEFT JOIN route_stop rs ON rs.stop_id = s.stop_id "
             "WHERE s.name LIKE ? "
-            "GROUP BY s.stop_id ORDER BY n_routes DESC, s.name LIMIT ?",
-            (f"%{keyword}%", limit),
+            "GROUP BY s.stop_id "
+            "ORDER BY (s.name = ?) DESC, (s.name LIKE ?) DESC, n_routes DESC, s.name "
+            "LIMIT ?",
+            (f"%{keyword}%", keyword, f"{keyword}%", limit),
         ).fetchall()
         return [
             (Stop(r["stop_id"], r["ars_id"], r["name"], r["lat"], r["lon"]), r["n_routes"])

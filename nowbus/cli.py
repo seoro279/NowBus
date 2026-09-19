@@ -2,7 +2,9 @@
 
     nowbus db build <xlsx>       정적 데이터 적재
     nowbus db stat               적재 현황
-    nowbus place add 집 37.5 127.0
+    nowbus search 강남역          장소 이름으로 좌표 찾기
+    nowbus place add 집           검색해서 고른 뒤 등록
+    nowbus place add 집 37.5 127.0   좌표를 이미 알 때
     nowbus place list
     nowbus plan 집 회사           서버 없이 코어 로직 직접 확인
 
@@ -19,7 +21,7 @@ from datetime import datetime, timedelta
 import typer
 
 from nowbus.config import Settings
-from nowbus.models import Catch, Plan
+from nowbus.models import Catch, PlaceHit, Plan, PlanSet
 
 app = typer.Typer(add_completion=False, help="지금 나가면 탈 수 있는 버스를 찾는다.")
 db_app = typer.Typer(help="정적 데이터 관리")
@@ -27,7 +29,12 @@ place_app = typer.Typer(help="즐겨찾기 장소")
 app.add_typer(db_app, name="db")
 app.add_typer(place_app, name="place")
 
-MARK = {Catch.SAFE: "[SAFE ]", Catch.TIGHT: "[TIGHT]", Catch.MISS: "[MISS ]"}
+MARK = {
+    Catch.SAFE: "[SAFE ]",
+    Catch.TIGHT: "[TIGHT]",
+    Catch.RUN: "[RUN  ]",
+    Catch.MISS: "[MISS ]",
+}
 
 
 def _repo(cfg: Settings):
@@ -114,13 +121,91 @@ def stops(
     repo.close()
 
 
+# ---------------------------------------------------------------- 장소 검색
+def _search_places(repo, cfg: Settings, query: str, limit: int) -> list[PlaceHit]:
+    """지오코더를 만들어 한 번 검색한다. 카카오 키가 없으면 정류장 이름만 본다."""
+    import httpx
+
+    from nowbus.providers.geocode import build_geocoder
+
+    async def go() -> list[PlaceHit]:
+        if not cfg.kakao_rest_key:
+            return await build_geocoder(repo, "", None).search(query, limit)
+        async with httpx.AsyncClient(timeout=cfg.http_timeout_sec) as client:
+            return await build_geocoder(repo, cfg.kakao_rest_key, client).search(query, limit)
+
+    return asyncio.run(go())
+
+
+def _show_hits(hits: list[PlaceHit]) -> None:
+    for i, h in enumerate(hits, 1):
+        tail = f"  [{h.source}]" if h.source != "stop" else "  [정류장]"
+        typer.echo(f"  {i}. {h.name}{tail}")
+        typer.echo(f"     {h.lat:.6f},{h.lon:.6f}   {h.address or ''}")
+
+
+@app.command("search")
+def search(
+    query: str = typer.Argument(..., help="장소 이름·주소. 예: 강남역, 세종대로 110"),
+    limit: int = typer.Option(8, "--limit", "-n"),
+) -> None:
+    """장소를 이름으로 찾아 좌표를 보여준다 [F-19].
+
+    NOWBUS_KAKAO_REST_KEY 가 있으면 건물·상호·주소까지 찾고, 없으면 DB 에 있는
+    정류장 이름만 본다. 키 없이도 동작하는 게 정상이다.
+    """
+    cfg = Settings()
+    repo = _repo(cfg)
+    try:
+        hits = _search_places(repo, cfg, query, limit)
+    finally:
+        repo.close()
+    if not hits:
+        typer.echo(f"'{query}' 를 찾지 못했다.")
+        if not cfg.kakao_rest_key:
+            typer.echo("  정류장 이름만 검색했다. 건물·상호로 찾으려면 카카오 키가 필요하다.")
+        return
+    _show_hits(hits)
+
+
 # ---------------------------------------------------------------- place
 @place_app.command("add")
-def place_add(name: str, lat: float, lon: float) -> None:
-    repo = _repo(Settings())
-    repo.save_place(name, lat, lon)
-    typer.echo(f"등록: {name} ({lat}, {lon})")
-    repo.close()
+def place_add(
+    name: str = typer.Argument(..., help="즐겨찾기 이름. 예: 집"),
+    lat: float = typer.Argument(None, help="생략하면 이름(또는 --query)으로 검색한다"),
+    lon: float = typer.Argument(None),
+    query: str = typer.Option(None, "--query", "-q", help="검색어. 생략하면 이름을 그대로 쓴다"),
+) -> None:
+    """즐겨찾기를 등록한다. 좌표를 모르면 검색해서 고른다.
+
+    좌표를 직접 넣는 길을 남겨둔 이유: 검색 결과가 정류장뿐일 때 그 좌표를
+    그대로 쓰면 도보 시간이 0 으로 잡혀 판정이 무의미해진다. 그럴 때는 지도에서
+    집 위치로 조금 옮긴 좌표를 직접 주는 편이 정확하다.
+    """
+    cfg = Settings()
+    repo = _repo(cfg)
+    try:
+        if lat is None or lon is None:
+            hits = _search_places(repo, cfg, query or name, 8)
+            if not hits:
+                raise typer.BadParameter(f"'{query or name}' 를 찾지 못했다. 좌표를 직접 줄 것.")
+            _show_hits(hits)
+            pick = typer.prompt("번호", default="1")
+            try:
+                chosen = hits[int(pick) - 1]
+            except (ValueError, IndexError) as e:
+                raise typer.BadParameter(f"1~{len(hits)} 중에서 고를 것.") from e
+            lat, lon = chosen.lat, chosen.lon
+            if chosen.source == "stop":
+                typer.secho(
+                    "  주의: 정류장 좌표다. 이 위치를 출발지로 쓰면 도보 시간이 0 에 가깝게"
+                    " 잡힌다.",
+                    fg=typer.colors.YELLOW,
+                )
+        repo.save_place(name, lat, lon)
+        typer.echo(f"등록: {name} ({lat:.6f}, {lon:.6f})")
+    finally:
+        repo.close()
 
 
 @place_app.command("list")
@@ -135,33 +220,54 @@ def place_list() -> None:
 
 
 # ---------------------------------------------------------------- plan
-def _render(plans: list[Plan], origin: str, dest: str, elapsed_ms: float) -> None:
+def _one(i: int, p: Plan, now: datetime) -> None:
+    arrive = now + timedelta(minutes=p.total_min)
+    extra = []
+    if p.congestion:
+        extra.append(f"혼잡도 {p.congestion}")
+    if p.is_last:
+        extra.append("막차")
+    if p.is_estimated:
+        extra.append("배차간격 추정")
+    tail = f"  ({', '.join(extra)})" if extra else ""
+    if p.run_to_board_min is not None:
+        move = f"뛰어서 {p.run_to_board_min:.0f}분 (걸으면 {p.walk_to_board_min:.0f}분)"
+    else:
+        move = f"도보 {p.walk_to_board_min:.0f}분"
+    typer.echo(f"{i}. {MARK[p.catch]} {p.board.name}  {move}")
+    typer.echo(
+        f"      {p.route.route_name}번  {p.eta_min:.0f}분 후 도착"
+        f"   여유 {p.margin_min:+.0f}분{tail}"
+    )
+    typer.echo(f"      -> {p.alight.name} 하차, 도보 {p.walk_from_alight_min:.0f}분")
+    typer.echo(f"      {arrive:%H:%M} 도착 예상 (총 {p.total_min:.0f}분)\n")
+
+
+def _render(found: PlanSet, origin: str, dest: str, elapsed_ms: float) -> None:
     now = datetime.now()
     typer.echo(f"\n{origin} -> {dest}   {now:%H:%M} 기준  ({elapsed_ms:.0f}ms)\n")
-    if not plans:
+    if not found.best and not found.sprint:
         typer.echo("  지금 걸어서 탈 수 있는 직통 버스가 없다.")
         typer.echo("  --radius 를 올려보거나, 목적지 좌표를 확인할 것.\n")
         return
-    if all(p.catch is Catch.MISS for p in plans):
+
+    if found.sprint:
+        typer.echo("  [지금 뛰면 잡을 수 있다]\n")
+        for i, p in enumerate(found.sprint, 1):
+            _one(i, p, now)
+
+    if not found.best:
+        typer.echo("  걸어서 잡을 수 있는 버스는 없다.\n")
+        return
+    if all(p.catch is Catch.MISS for p in found.best):
         typer.echo("  ! 지금 나가면 다 놓친다.\n")
+    if found.sprint:
+        typer.echo("  [걸어서 잡을 수 있다]\n")
 
-    for i, p in enumerate(plans, 1):
-        arrive = now + timedelta(minutes=p.total_min)
-        extra = []
-        if p.congestion:
-            extra.append(f"혼잡도 {p.congestion}")
-        if p.is_last:
-            extra.append("막차")
-        tail = f"  ({', '.join(extra)})" if extra else ""
-        typer.echo(f"{i}. {MARK[p.catch]} {p.board.name}  도보 {p.walk_to_board_min:.0f}분")
-        typer.echo(
-            f"      {p.route.route_name}번  {p.eta_min:.0f}분 후 도착"
-            f"   여유 {p.margin_min:+.0f}분{tail}"
-        )
-        typer.echo(f"      -> {p.alight.name} 하차, 도보 {p.walk_from_alight_min:.0f}분")
-        typer.echo(f"      {arrive:%H:%M} 도착 예상 (총 {p.total_min:.0f}분)\n")
+    for i, p in enumerate(found.best, 1):
+        _one(i, p, now)
 
-    stops = len({p.board.stop_id for p in plans})
+    stops = len({p.board.stop_id for p in found.best})
     typer.echo(f"  서로 다른 승차 정류장 {stops}곳\n")
 
 
@@ -200,14 +306,14 @@ def plan(
         async with httpx.AsyncClient(timeout=cfg.http_timeout_sec) as client:
             provider = SeoulProvider(cfg.seoul_api_key, client, cache_ttl_sec=cfg.cache_ttl_sec)
             t = time.perf_counter()
-            plans = await plan_now(o, d, repo, provider, cfg)
-            return plans, (time.perf_counter() - t) * 1000
+            found = await plan_now(o, d, repo, provider, cfg)
+            return found, (time.perf_counter() - t) * 1000
 
     try:
-        plans, ms = asyncio.run(run())
+        found, ms = asyncio.run(run())
     finally:
         repo.close()
-    _render(plans, origin, dest, ms)
+    _render(found, origin, dest, ms)
 
 
 @app.command("serve")

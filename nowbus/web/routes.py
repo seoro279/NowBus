@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from math import ceil, floor
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from nowbus.core.planner import plan_now
 from nowbus.db.repo import StaticRepo
-from nowbus.models import Catch, Plan
-from nowbus.schemas import Feedback, Place, PlaceCreate, PlanItem, PlanResponse
-from nowbus.web.deps import ProviderDep, RepoDep, SettingsDep, TokenDep
+from nowbus.models import Catch, Plan, PlanSet
+from nowbus.schemas import (
+    Feedback,
+    Place,
+    PlaceCreate,
+    PlaceHitOut,
+    PlanItem,
+    PlanResponse,
+)
+from nowbus.web.deps import GeocoderDep, ProviderDep, RepoDep, SettingsDep, TokenDep
 
 router = APIRouter(prefix="/api")
 
@@ -36,6 +44,10 @@ def _resolve(
 
 
 def _to_item(rank: int, p: Plan, now: datetime) -> PlanItem:
+    # 뛰는 시간은 올리고 여유는 내린다. 다른 필드처럼 반올림하면 '뛰어서 1분,
+    # 여유 1분' 처럼 실제보다 넉넉해 보이는 쪽으로 틀릴 수 있다.
+    run_min = ceil(p.run_to_board_min) if p.run_to_board_min is not None else None
+    margin = floor(p.margin_min) if p.catch is Catch.RUN else round(p.margin_min)
     return PlanItem(
         rank=rank,
         board_stop_name=p.board.name,
@@ -45,8 +57,9 @@ def _to_item(rank: int, p: Plan, now: datetime) -> PlanItem:
         walk_to_board_min=round(p.walk_to_board_min),
         route_name=p.route.route_name,
         eta_min=round(p.eta_min),
-        margin_min=round(p.margin_min),
+        margin_min=margin,
         catch=p.catch.value,
+        run_to_board_min=run_min,
         alight_stop_name=p.alight.name,
         walk_from_alight_min=round(p.walk_from_alight_min),
         ride_min=round(p.ride_min),
@@ -54,13 +67,16 @@ def _to_item(rank: int, p: Plan, now: datetime) -> PlanItem:
         arrive_at=(now + timedelta(minutes=p.total_min)).strftime("%H:%M"),
         congestion=p.congestion,
         is_last=p.is_last,
+        is_estimated=p.is_estimated,
     )
 
 
-def _warning(plans: list[Plan]) -> str | None:
-    if not plans:
+def _warning(found: PlanSet) -> str | None:
+    if not found.best:
+        if found.sprint:
+            return "걸어서 잡을 수 있는 버스는 없어요. 뛰면 잡히는 것만 있어요"
         return "지금 걸어서 탈 수 있는 직통 버스가 없어요"
-    if all(p.catch is Catch.MISS for p in plans):
+    if all(p.catch is Catch.MISS for p in found.best):
         return "지금 나가면 다 놓쳐요"
     return None
 
@@ -88,15 +104,46 @@ async def get_plan(
         cfg = settings.model_copy(update={"radius_origin_m": radius, "radius_dest_m": radius + 100})
 
     now = datetime.now()
-    plans = await plan_now(origin, dest, repo, provider, cfg)
+    found = await plan_now(origin, dest, repo, provider, cfg)
     return PlanResponse(
         origin_label=origin_label,
         dest_label=dest_label,
         departed_at=now.strftime("%H:%M"),
         generated_at=now.astimezone().isoformat(),
-        items=[_to_item(i, p, now) for i, p in enumerate(plans, 1)],
-        warning=_warning(plans),
+        items=[_to_item(i, p, now) for i, p in enumerate(found.best, 1)],
+        sprint=[_to_item(i, p, now) for i, p in enumerate(found.sprint, 1)],
+        warning=_warning(found),
     )
+
+
+@router.get("/geocode", response_model=list[PlaceHitOut])
+async def geocode(
+    geocoder: GeocoderDep,
+    settings: SettingsDep,
+    _: TokenDep,
+    q: str = Query(min_length=1, max_length=50, description="장소 이름·주소"),
+    lat: float | None = Query(None, ge=-90, le=90, description="있으면 가까운 순으로"),
+    lon: float | None = Query(None, ge=-180, le=180),
+) -> list[PlaceHitOut]:
+    """장소를 이름으로 찾아 좌표를 돌려준다 [F-19].
+
+    사용자가 좌표를 직접 입력하지 않게 하려고 만든 엔드포인트다. 즐겨찾기 등록은
+    여전히 POST /api/places 가 하고, 이건 좌표를 구해주는 역할만 한다.
+    """
+    near = (lat, lon) if lat is not None and lon is not None else None
+    hits = await geocoder.search(q, limit=settings.geocode_limit, near=near)
+    return [
+        PlaceHitOut(
+            name=h.name,
+            lat=h.lat,
+            lon=h.lon,
+            address=h.address,
+            source=h.source,
+            category=h.category,
+            distance_m=round(h.distance_m) if h.distance_m is not None else None,
+        )
+        for h in hits
+    ]
 
 
 @router.get("/places", response_model=list[Place])
