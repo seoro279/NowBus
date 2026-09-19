@@ -78,13 +78,12 @@ class StopGeocoder(Geocoder):
 class KakaoGeocoder(Geocoder):
     """카카오 로컬 API. 키워드(상호·건물명) + 주소 두 질의를 같이 던진다.
 
-    keyword.json 은 **실물 응답으로 확인했다** (2026-09-19, 사용자 로컬).
-    documents 의 키는 정확히 이랬다:
-      address_name, category_group_code, category_group_name, category_name,
-      distance, id, phone, place_name, place_url, road_address_name, x, y
-
-    address.json 은 아직 확인하지 못했다. 확인 당시 질의가 주소가 아니어서
-    documents 가 0건이었다. 주소 검색 결과의 모양은 문서 기준으로 남아 있다.
+    두 엔드포인트 모두 **실물 응답으로 확인했다** (2026-09-19, 사용자 로컬).
+    documents 의 키는 정확히 이랬다.
+      keyword: address_name, category_group_code, category_group_name,
+        category_name, distance, id, phone, place_name, place_url,
+        road_address_name, x, y
+      address: address, address_name, address_type, road_address, x, y
 
     개발 컨테이너에서는 dapi.kakao.com 이 조직 이그레스 정책에 막혀 있으므로
     확인은 로컬에서 한다:
@@ -149,9 +148,9 @@ def _parse_kakao(body: dict, source: str) -> list[PlaceHit]:
     """카카오 로컬 응답 → PlaceHit.
 
     keyword.json 과 address.json 의 문서가 서로 다르다.
-      keyword(실물 확인): place_name, road_address_name, address_name,
+      keyword: place_name, road_address_name, address_name,
         category_group_name, category_name, distance, id, phone, place_url, x, y
-      address(문서 기준): address_name, road_address{address_name},
+      address: address_name, address_type, road_address{address_name},
         address{region_3depth_name}, x, y
     공통으로 x(경도)·y(위도)가 문자열로 온다.
 

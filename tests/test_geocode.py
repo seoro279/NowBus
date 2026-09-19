@@ -1,12 +1,11 @@
 """장소 검색. 좌표를 사용자가 아니라 프로그램이 구한다 [F-19].
 
-KEYWORD_SAMPLE 의 키 구성은 **실물 응답과 일치한다** (2026-09-19 로컬 확인).
-값만 픽스처용으로 바꿨다. ADDRESS_SAMPLE 은 아직 문서 기준이다 - 확인 당시
-질의가 주소가 아니어서 documents 가 0건이었다.
+두 샘플의 키 구성은 **실물 응답과 일치한다** (2026-09-19 로컬 확인, keyword·address
+둘 다). 값만 픽스처용으로 바꿨다.
 
 개발 컨테이너에서는 dapi.kakao.com 이 막혀 있어 여기서 실물을 받을 수 없다.
-확인은 로컬에서 scripts/smoke_geocode.py 로 하고, 응답이 다르면 이 샘플과
-파서를 같이 고친다.
+스펙이 의심되면 로컬에서 scripts/smoke_geocode.py 로 받아 보고, 응답이 다르면
+이 샘플과 파서를 같이 고친다.
 """
 
 import httpx
@@ -52,6 +51,7 @@ ADDRESS_SAMPLE = {
     "documents": [
         {
             "address_name": "서울 중구 세종대로 110",
+            "address_type": "ROAD_ADDR",
             "x": "126.9780",
             "y": "37.5665",
             "road_address": {"address_name": "서울 중구 세종대로 110"},

@@ -96,10 +96,9 @@ cp .env.example .env
 동작하지만 **DB 에 있는 정류장 이름만** 찾는다. 건물명·상호·도로명주소로 찾으려면
 이 키가 필요하다.
 
-> 키워드 검색(`keyword.json`)은 **실물 응답으로 확인했다** (2026-09-19).
-> 주소 검색(`address.json`)은 아직 확인 전이다. 스펙이 의심되면
-> `python scripts/smoke_geocode.py "세종대로 110"` 을 로컬에서 돌린다 —
-> 원본 응답을 `tests/fixtures/` 에 저장하고 파서에 통과시킨다.
+> 키워드·주소 검색 **양쪽 모두 실물 응답으로 확인했다** (2026-09-19).
+> 스펙이 의심되면 `python scripts/smoke_geocode.py "세종대로 110"` 을 로컬에서
+> 돌린다 — 원본 응답을 `tests/fixtures/` 에 저장하고 파서에 통과시킨다.
 > (개발 컨테이너에서는 `dapi.kakao.com` 이 막혀 있어 실행되지 않는다.)
 
 Windows `cmd` 기준:
