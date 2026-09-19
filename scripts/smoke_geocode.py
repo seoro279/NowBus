@@ -72,6 +72,33 @@ def _fingerprint(key: str) -> str:
     return f"{len(key)}자, {shape}"
 
 
+def _hint(status: int, body: str) -> list[str]:
+    """카카오가 본문에 적어 준 이유를 사람이 할 행동으로 옮긴다.
+
+    실물에서 받은 것: 403 + "App(Nowbus) disabled OPEN_MAP_AND_LOCAL service."
+    키는 정상인데 앱에서 지도/로컬 서비스가 꺼져 있던 경우다. 이 메시지를 모르면
+    키를 계속 다시 발급하게 된다 - 키 문제가 아니었다.
+    """
+    if "OPEN_MAP_AND_LOCAL" in body:
+        return [
+            "키는 정상이다. 앱에서 지도/로컬 서비스가 꺼져 있다.",
+            "카카오 개발자 > 내 애플리케이션 > 제품 설정 > '카카오맵' 활성화 ON",
+            "(활성화가 웹 플랫폼 등록을 요구하면 사이트 도메인에 http://localhost:8000 을 넣는다)",
+        ]
+    if status == 401:
+        return [
+            "401 은 키 거부다. 확인 순서:",
+            "1) 카카오 개발자 > 내 애플리케이션 > 앱 키 > 'REST API 키'",
+            "   (JavaScript / 네이티브 앱 / Admin 키가 아니다)",
+            "2) .env 에 NOWBUS_KAKAO_REST_KEY 줄이 두 개면 아래 줄이 이긴다",
+        ]
+    if status == 403:
+        return ["403 은 권한 거부다. 위 message 가 어느 서비스를 막았는지 말해 준다."]
+    if status == 429:
+        return ["429 는 호출 한도 초과다. 잠시 뒤 다시 돌릴 것."]
+    return []
+
+
 async def probe(key: str, query: str) -> int:
     headers = {"Authorization": f"KakaoAK {key}"}
     failures = 0
@@ -93,12 +120,8 @@ async def probe(key: str, query: str) -> int:
                 # 그게 없으면 'REST 키가 아니다' 와 '이 앱에 권한이 없다' 를
                 # 구분할 수 없다. 본문에 키는 들어 있지 않다.
                 print(f"  ! 본문: {r.text[:500]}")
-                if r.status_code == 401:
-                    print("  ! 401 은 키 거부다. 확인 순서:")
-                    print("    1) 카카오 개발자 > 내 애플리케이션 > 앱 키 > 'REST API 키'")
-                    print("       (JavaScript / Android / iOS / Admin 키가 아니다)")
-                    print("    2) .env 에 NOWBUS_KAKAO_REST_KEY 줄이 두 개면 아래 줄이 이긴다")
-                    print("    3) 앱에 '카카오맵' 또는 로컬 API 사용 설정이 필요한지 확인")
+                for line in _hint(r.status_code, r.text):
+                    print(f"  ! {line}")
                 failures += 1
                 continue
 

@@ -90,7 +90,9 @@ cp .env.example .env
 
 **장소 검색을 제대로 쓰려면 카카오 REST 키를 하나 더 넣는다** (선택).
 [developers.kakao.com](https://developers.kakao.com/) → 애플리케이션 추가 →
-앱 키의 **REST API 키** 를 `NOWBUS_KAKAO_REST_KEY` 에 넣는다. 없어도 장소 검색은
+앱 키의 **REST API 키** 를 `NOWBUS_KAKAO_REST_KEY` 에 넣는다. 그리고
+**제품 설정에서 '카카오맵' 을 활성화해야 한다** - 키만 발급하면
+`403 App(...) disabled OPEN_MAP_AND_LOCAL service.` 가 돌아온다. 없어도 장소 검색은
 동작하지만 **DB 에 있는 정류장 이름만** 찾는다. 건물명·상호·도로명주소로 찾으려면
 이 키가 필요하다.
 
