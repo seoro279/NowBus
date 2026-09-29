@@ -75,6 +75,10 @@ class StaticRepo:
 
         같은 (route, board, alight) 가 여러 번 나오면 n_stops 최소값만 남긴다
         (계획서 §10-2 회차 노선 대응).
+
+        board_seq 는 그 최소값을 만든 행의 승차 seq 다. SQLite 는 집계에 MIN() 이
+        하나뿐이면 나머지 bare column 을 그 최소 행에서 가져온다(문서화된 동작).
+        같은 정류장을 두 번 지나는 노선에서 엉뚱한 쪽 seq 를 집지 않게 하려는 것이다.
         """
         if not origin_stop_ids or not dest_stop_ids:
             return []
@@ -85,7 +89,8 @@ class StaticRepo:
             SELECT rs1.route_id,
                    rs1.stop_id AS board_stop,
                    rs2.stop_id AS alight_stop,
-                   MIN(rs2.seq - rs1.seq) AS n_stops
+                   MIN(rs2.seq - rs1.seq) AS n_stops,
+                   rs1.seq AS board_seq
             FROM route_stop rs1
             JOIN route_stop rs2
               ON rs1.route_id = rs2.route_id
@@ -96,7 +101,43 @@ class StaticRepo:
             """,
             (*origin_stop_ids, *dest_stop_ids),
         ).fetchall()
-        return [Combo(r["route_id"], r["board_stop"], r["alight_stop"], r["n_stops"]) for r in rows]
+        return [
+            Combo(r["route_id"], r["board_stop"], r["alight_stop"], r["n_stops"], r["board_seq"])
+            for r in rows
+        ]
+
+    def board_context(
+        self, keys: list[tuple[str, int]]
+    ) -> dict[tuple[str, int], tuple[str | None, str | None]]:
+        """(route_id, 승차 seq) → (다음 정류장 이름, 행선지).
+
+        길 양쪽에 이름이 같은 정류장이 있으면 카드만 봐서는 어느 쪽인지 모른다.
+        실물 146번에서 '공릉시장' 은 seq 29(다음 태릉입구역3번출구, 강남역행)와
+        seq 107(다음 공릉역1번출구, 상계주공7단지행) 두 곳이다. 실제 정류장
+        표지판이 '○○ 방면' 을 다음 정류장으로 적으므로 그걸 돌려준다.
+
+        direction 은 표시용으로만 읽는다. 조합 판정에 쓰면 안 된다 (find_direct_combos
+        독스트링과 인계 메모 §2-1 참조).
+        """
+        if not keys:
+            return {}
+        out: dict[tuple[str, int], tuple[str | None, str | None]] = {}
+        # 키가 수십 개라 한 방에 묶는다. VALUES 로 임시 테이블을 만들어 조인한다.
+        values = ",".join("(?, ?)" for _ in keys)
+        rows = self.conn.execute(
+            f"""
+            WITH k(route_id, seq) AS (VALUES {values})
+            SELECT k.route_id, k.seq, cur.direction, s.name AS next_name
+            FROM k
+            JOIN route_stop cur ON cur.route_id = k.route_id AND cur.seq = k.seq
+            LEFT JOIN route_stop nxt ON nxt.route_id = k.route_id AND nxt.seq = k.seq + 1
+            LEFT JOIN stop s ON s.stop_id = nxt.stop_id
+            """,
+            [v for key in keys for v in key],
+        ).fetchall()
+        for r in rows:
+            out[(r["route_id"], r["seq"])] = (r["next_name"], r["direction"])
+        return out
 
     def get_routes(self, route_ids: list[str]) -> dict[str, Route]:
         if not route_ids:

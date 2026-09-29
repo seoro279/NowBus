@@ -16,6 +16,11 @@ class PlanItem(BaseModel):
     board_stop_ars: str | None
     board_lat: float  # 지도앱 딥링크용 [F-18]
     board_lon: float
+    board_stop_id: str = ""  # 같은 이름의 다른 정류장을 구분하는 키
+    # 길 양쪽의 같은 이름 정류장을 가려주는 방향 정보. 표지판의 "○○ 방면" 과
+    # 버스 앞 행선판이다. 데이터에 없으면 null.
+    board_next_stop: str | None = None
+    bound_for: str | None = None
     walk_to_board_min: int
     route_name: str
     eta_min: int

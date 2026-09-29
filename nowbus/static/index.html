@@ -3,35 +3,61 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#111417">
+<meta name="theme-color" content="#f6f7f9">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
 <meta name="apple-mobile-web-app-title" content="NowBus">
 <title>NowBus</title>
+<script>
+  /* 테마를 첫 페인트 전에 정한다. CSS 가 로드된 뒤에 바꾸면 어두운 화면이 한 번
+     번쩍인다. 저장값: 'light' | 'dark' | 없음(= 기기 설정 따름). */
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('nowbus.theme'); } catch (e) {}
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    var dark = t === 'dark' ||
+      (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.querySelector('meta[name="theme-color"]').content = dark ? '#111417' : '#f6f7f9';
+    /* iOS 홈 화면 앱의 상태바 글자색. 'black-translucent' 는 글자가 항상 흰색이라
+       밝은 배경에서는 시계·배터리가 안 보인다. 앱을 켤 때 한 번 읽히므로
+       테마를 바꾸면 다음 실행부터 반영된다. */
+    var m = document.createElement('meta');
+    m.name = 'apple-mobile-web-app-status-bar-style';
+    m.content = dark ? 'black-translucent' : 'default';
+    document.head.appendChild(m);
+  })();
+</script>
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <link rel="icon" type="image/png" href="/icons/icon-192.png">
 <!-- ?v= 는 캐시 버스터다. 폰 브라우저가 옛 app.js 를 계속 내주는 일이 실제로
      있었다. UI 를 고치면 이 숫자와 sw.js 의 VERSION, 아래 build 표시를 같이 올린다. -->
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 
 <!-- ① 목적지 선택 -->
 <main id="home" class="screen">
   <header class="home-head">
-    <h1>NowBus <span class="build">v3</span></h1>
+    <h1>NowBus <span class="build">v4</span></h1>
     <p id="gps" class="gps">위치 확인 중…</p>
   </header>
 
+  <!-- 검색해서 바로 간다. 즐겨찾기 등록은 결과 화면에서 고른다(옵션). -->
+  <button id="open-search" class="searchbar" type="button">
+    <span aria-hidden="true">🔍</span> 어디로 가세요? 장소 검색
+  </button>
+
   <div class="ask-row">
-    <p class="ask">어디로 가세요?</p>
+    <p class="ask">즐겨찾기</p>
     <button id="edit-places" class="link edit">편집</button>
   </div>
   <div id="places" class="places"></div>
 
-  <button id="add-place" class="btn ghost">+ 장소 추가</button>
-  <button id="edit-token" class="link">토큰 설정</button>
+  <div class="settings">
+    <button id="edit-theme" class="link">화면: 자동</button>
+    <button id="edit-token" class="link">토큰 설정</button>
+  </div>
 </main>
 
 <!-- ② 결과 -->
@@ -42,6 +68,8 @@
       <strong id="trip-label">—</strong>
       <span id="freshness" class="fresh">—</span>
     </div>
+    <!-- 검색으로 온 목적지일 때만 보인다. 즐겨찾기는 옵션이다. -->
+    <button id="star" class="star" type="button" hidden aria-label="즐겨찾기에 추가">☆</button>
   </header>
 
   <div id="banner" class="banner" hidden></div>
@@ -58,11 +86,11 @@
   <button id="refresh" class="btn refresh">새로고침</button>
 </main>
 
-<!-- ③ 장소 검색해서 추가 -->
+<!-- ③ 장소 검색 → 탭하면 바로 경로 -->
 <main id="search" class="screen" hidden>
   <header class="result-head">
     <button id="search-back" class="back" aria-label="뒤로">←</button>
-    <div class="trip"><strong>장소 추가</strong></div>
+    <div class="trip"><strong>장소 검색</strong></div>
   </header>
 
   <form id="search-form" class="search-form">
@@ -75,6 +103,6 @@
   <div id="hits" class="hits" aria-live="polite"></div>
 </main>
 
-<script src="/app.js?v=3"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>

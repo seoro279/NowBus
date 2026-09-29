@@ -1,6 +1,6 @@
 # NowBus
 
-> **최종 갱신: 2026-09-19** · Phase 0~6 완료, 7 진행 중 · 테스트 147개 통과
+> **최종 갱신: 2026-09-29** · Phase 0~6 완료, 7 진행 중 · 테스트 157개 통과
 > 서울 전역 데이터 적재 완료 — 노선 718개 / 정류장 12,897개 / 경유 41,688행
 
 현재 위치에서 지금 출발했을 때, **실제로 걸어서 닿을 수 있는** 정류장·버스 조합만
@@ -34,6 +34,9 @@
 | 좌표를 몰라서 장소를 추가하기 어렵다 | **장소 이름·주소 검색** (`GET /api/geocode`, `nowbus search`, 앱의 '장소 추가' 화면) |
 | 1~2분 뒤 도착하는 버스가 목록에 없다. 뛰면 타는데 | **RUN 등급** — 걸어선 놓치지만 뛰면 잡히는 버스를 별도 칸에 따로 보여준다 |
 | 잘못 넣은 장소를 지울 수 없다 | **즐겨찾기 삭제** (`DELETE /api/places`, `nowbus place rm`, 홈의 '편집' 모드) |
+| 같은 이름 정류장이 길 양쪽에 있으면 어느 쪽인지 모른다 | 카드에 **'○○ 방면'**(다음 정류장)과 **'○○행'**(행선판) 표시 |
+| 경로를 보려면 먼저 장소를 즐겨찾기에 넣어야 한다 | **검색 → 탭 → 바로 경로.** 즐겨찾기는 결과 화면의 ☆ 로 (옵션) |
+| 어두운 화면만 있다 | **화면: 자동 / 밝게 / 어둡게** (홈 하단) |
 
 ### 동작하는 것
 
@@ -129,7 +132,7 @@ python -m nowbus.collectors.build_db "data/raw/서울시버스노선별정류소
 
 ```bash
 uv sync                # 또는 pip install -e '.[dev]'
-uv run pytest          # 147개
+uv run pytest          # 157개
 uv run ruff check .
 ```
 
@@ -222,6 +225,7 @@ curl -G --data-urlencode "from=집" --data-urlencode "to=회사" \
 |---|---|
 | `GET /api/plan?lat=&lon=&to=회사` | GPS 기반 |
 | `GET /api/plan?from=집&to=회사` | 즐겨찾기 (GPS 실패 폴백) |
+| `GET /api/plan?lat=&lon=&to_lat=&to_lon=&to_name=스타벅스` | 즐겨찾기에 없는 곳으로 바로 (검색 결과) |
 | `GET /api/geocode?q=서울시청&lat=&lon=` | 장소 이름·주소 → 좌표 [F-19] |
 | `GET /api/places` · `POST /api/places` · `DELETE /api/places?name=집` | 즐겨찾기 |
 | `POST /api/feedback` | 실측 도보시간 [F-11] |
@@ -403,7 +407,7 @@ nowbus/
 
 scripts/smoke.py        [x] 버스 API 진단 도구
 scripts/smoke_geocode.py [x] 카카오 로컬 응답 확인 (로컬에서 1회 필수)
-tests/                  [x] 147개. 픽스처 기반이라 오프라인
+tests/                  [x] 157개. 픽스처 기반이라 오프라인
 ```
 
 핵심 원칙은 **Planner 가 인터페이스에 무지하다**는 것. FastAPI든 CLI든 `plan_now()`

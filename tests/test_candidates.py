@@ -158,3 +158,45 @@ class TestPlaceDelete:
         repo.save_place("회사", 37.6, 127.1)
         repo.delete_place("집")
         assert [n for n, _, _ in repo.list_places()] == ["회사"]
+
+
+class TestBoardDirection:
+    """길 양쪽의 같은 이름 정류장 구분. 실물 146번 '공릉시장' 이 두 곳이다.
+
+    seq  29: 다음 태릉입구역3번출구, 행선판 강남역
+    seq 107: 다음 공릉역1번출구,     행선판 상계주공7단지
+    """
+
+    def _gongneung(self, repo):
+        rows = repo.conn.execute(
+            "SELECT rs.seq, rs.stop_id FROM route_stop rs JOIN stop s USING(stop_id) "
+            "WHERE s.name = '공릉시장' ORDER BY rs.seq"
+        ).fetchall()
+        assert [r["seq"] for r in rows] == [29, 107], "픽스처 전제가 바뀌었다"
+        return rows
+
+    def test_combo_carries_the_boarding_seq(self, repo):
+        up, _ = self._gongneung(repo)
+        combos = repo.find_direct_combos([up["stop_id"]], [GANGNAM9])
+        assert combos and combos[0].board_seq == 29
+
+    def test_same_name_stops_get_different_directions(self, repo):
+        ctx = repo.board_context([("100100025", 29), ("100100025", 107)])
+        assert ctx[("100100025", 29)] == ("태릉입구역3번출구", "강남역")
+        assert ctx[("100100025", 107)] == ("공릉역1번출구", "상계주공7단지")
+
+    def test_last_stop_has_no_next(self, repo):
+        """종점에서 탈 일은 없지만 조회가 깨지면 안 된다."""
+        assert repo.board_context([("100100025", 135)])[("100100025", 135)][0] is None
+
+    def test_empty_keys(self, repo):
+        assert repo.board_context([]) == {}
+
+    def test_direction_is_never_a_join_condition(self, repo):
+        """인계 메모 §2-1 회귀 방지. direction 이 달라도 seq 만 맞으면 조합이다.
+
+        강남역9번출구(seq 66, 강남역행) → 강남역1번출구(seq 70, 상계주공7단지행).
+        방향 표시를 붙이면서 이 조합이 사라지면 안 된다.
+        """
+        combos = repo.find_direct_combos([GANGNAM9], [GANGNAM1])
+        assert [(c.n_stops, c.board_seq) for c in combos] == [(4, 66)]

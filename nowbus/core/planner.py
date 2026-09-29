@@ -56,6 +56,7 @@ def _build(
     walk_to_board_min: float,
     walk_from_alight_min: float,
     cfg: Settings,
+    heading: tuple[str | None, str | None] = (None, None),
 ) -> Plan:
     """후보 1건을 조립한다.
 
@@ -84,6 +85,8 @@ def _build(
         is_last=arrival.is_last,
         is_estimated=arrival.is_estimated,
         run_to_board_min=to_board_min if catch is Catch.RUN else None,
+        board_next_stop=heading[0],
+        bound_for=heading[1],
     )
 
 
@@ -160,6 +163,10 @@ async def plan_now(
 
     stop_by_id = {s.stop_id: s for s in origin_stops} | {s.stop_id: s for s in dest_stops}
     routes = repo.get_routes(list({c.route_id for c in combos}))
+    # 방향 표시용. 길 양쪽의 같은 이름 정류장을 가려주는 것뿐이라 판정과 무관하다.
+    headings = repo.board_context(
+        list({(c.route_id, c.board_seq) for c in combos if c.board_seq is not None})
+    )
 
     plans: list[Plan] = []
     sprints: list[Plan] = []
@@ -184,6 +191,7 @@ async def plan_now(
             walk_to_board_min=w_to,
             walk_from_alight_min=w_from,
             cfg=cfg,
+            heading=headings.get((c.route_id, c.board_seq), (None, None)),
         )
 
         # 5) 탑승 가능성 판정. 배차간격은 도착정보 응답에 같이 실려 온다.

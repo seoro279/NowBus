@@ -50,6 +50,8 @@ class Combo:
     board_stop_id: str
     alight_stop_id: str
     n_stops: int
+    # 승차 지점의 경유 순서. 방향 표시(다음 정류장·행선지)를 찾는 데만 쓴다.
+    board_seq: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,10 @@ class Plan:
     # 뛰어서 승차 정류장까지 가는 데 걸리는 시간. catch=RUN 일 때만 채운다.
     # 이때 margin_min 은 walk 가 아니라 이 값을 기준으로 잰 여유다.
     run_to_board_min: float | None = None
+    # 승차 정류장에서 버스가 향하는 쪽. 이름이 같은 정류장이 길 양쪽에 있을 때
+    # 어느 쪽에서 타야 하는지 가려준다. 표시용이다 - 판정에는 쓰지 않는다.
+    board_next_stop: str | None = None  # 다음 정류장 = 표지판의 "○○ 방면"
+    bound_for: str | None = None  # 버스 앞 행선판. "강남역" 이면 "강남역행"
 
 
 @dataclass(frozen=True, slots=True)

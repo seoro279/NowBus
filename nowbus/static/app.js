@@ -9,6 +9,7 @@ let coords = null;       // {lat, lon, accuracy} - 진입 즉시 백그라운드
 let gpsError = null;
 let places = [];
 let editing = false;   // 홈의 편집 모드. 이때만 삭제 버튼이 존재한다
+let currentDest = null;  // 결과 화면의 목적지. {name, lat, lon, saved, source}
 let lastResponse = null;
 let lastQuery = null;    // 새로고침·반경확대에 재사용
 let freshnessTimer = null;
@@ -115,7 +116,7 @@ async function loadPlaces() {
     return;
   }
   if (!places.length) {
-    box.innerHTML = '<p class="empty">장소를 먼저 추가해주세요</p>';
+    box.innerHTML = '<p class="empty small">아직 없어요. 검색해서 간 곳을 ☆ 로 저장할 수 있어요</p>';
     $('edit-places').hidden = true;
     return;
   }
@@ -134,7 +135,7 @@ function placeRow(p) {
   const b = document.createElement('button');
   b.className = 'btn';
   b.textContent = p.name;
-  b.onclick = () => onDestination(p);
+  b.onclick = () => onDestination({ ...p, saved: true });
   row.appendChild(b);
 
   if (editing) {
@@ -173,17 +174,54 @@ async function removePlace(p) {
   setEditing(editing);
 }
 
+// 목적지 하나로 경로를 조회한다. 즐겨찾기든 검색 결과든 여기로 온다.
+// 즐겨찾기는 이름으로(서버가 좌표를 찾는다), 검색 결과는 좌표로 넘긴다 -
+// 검색 결과를 즐겨찾기에 먼저 넣게 하지 않는 게 이 함수의 요점이다.
+function destParams(dest) {
+  return dest.saved
+    ? { to: dest.name }
+    : { to_lat: dest.lat, to_lon: dest.lon, to_name: dest.name };
+}
+
 // GPS 가 없으면 출발지를 먼저 물어본다 (설계서 §10.3 폴백).
 function onDestination(dest) {
-  if (coords) return run({ lat: coords.lat, lon: coords.lon, to: dest.name }, `현재 위치 → ${dest.name}`);
+  currentDest = dest;
+  const to = destParams(dest);
+  if (coords) return run({ lat: coords.lat, lon: coords.lon, ...to }, `현재 위치 → ${dest.name}`);
   const others = places.filter((p) => p.name !== dest.name);
   if (!others.length) return alert(gpsError || '출발지를 알 수 없어요');
   const names = others.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
   const pick = window.prompt(`출발지를 골라주세요\n${names}`, '1');
   const from = others[Number(pick) - 1];
   if (!from) return;
-  run({ from: from.name, to: dest.name }, `${from.name} → ${dest.name}`);
+  run({ from: from.name, ...to }, `${from.name} → ${dest.name}`);
 }
+
+/* ---------------------------------------------------------------- 즐겨찾기 별 */
+// 이미 저장된 곳인지는 좌표로 본다. 이름은 사용자가 바꿔 저장하므로 기준이 못 된다.
+// 약 11m 격자 - 같은 건물을 두 번 저장하는 걸 막을 정도면 된다.
+function findSaved(dest) {
+  const key = (x) => `${x.lat.toFixed(4)},${x.lon.toFixed(4)}`;
+  return places.find((p) => key(p) === key(dest)) || null;
+}
+
+function updateStar() {
+  const star = $('star');
+  if (!currentDest) { star.hidden = true; return; }
+  const saved = currentDest.saved ? currentDest : findSaved(currentDest);
+  star.hidden = false;
+  star.textContent = saved ? '★' : '☆';
+  star.disabled = !!saved;
+  star.setAttribute('aria-label', saved ? `즐겨찾기 '${saved.name}'` : '즐겨찾기에 추가');
+}
+
+$('star').onclick = async () => {
+  if (!currentDest || currentDest.saved) return;
+  const name = await saveFavorite(currentDest);
+  if (!name) return;
+  currentDest = { ...currentDest, name, saved: true };
+  updateStar();
+};
 
 /* ---------------------------------------------------------------- 결과 */
 async function run(query, label) {
@@ -193,6 +231,7 @@ async function run(query, label) {
   $('banner').hidden = true;
   $('composition').hidden = true;
   $('sprint-box').hidden = true;
+  updateStar();
   $('freshness').textContent = '조회 중…';
   $('cards').innerHTML = '<div class="skeleton"></div>'.repeat(3);
   try {
@@ -237,14 +276,27 @@ function render(data) {
 
   // 설계서 §10.1: 'A정류장 2개 / B정류장 1개' 구조가 한눈에 보여야 한다.
   // 그래야 첫 정류장을 놓쳤을 때 대안이 어디인지 바로 안다.
+  // 이름이 아니라 정류장 단위로 센다. 길 양쪽의 같은 이름 정류장을 이름으로 묶으면
+  // '7단지영업소 3' 처럼 보여서 대안이 없는 것처럼 읽힌다. 이름이 겹칠 때만 방면을 붙인다.
   const comp = $('composition');
-  const counts = new Map();
+  const groups = new Map();
   for (const it of data.items) {
-    counts.set(it.board_stop_name, (counts.get(it.board_stop_name) || 0) + 1);
+    const key = it.board_stop_id || it.board_stop_name;
+    const g = groups.get(key) || { it, n: 0 };
+    g.n += 1;
+    groups.set(key, g);
   }
-  if (counts.size > 1) {
-    comp.innerHTML = [...counts]
-      .map(([name, n]) => `<b>${esc(name)}</b> ${n}`)
+  if (groups.size > 1) {
+    const nameCount = new Map();
+    for (const { it } of groups.values()) {
+      nameCount.set(it.board_stop_name, (nameCount.get(it.board_stop_name) || 0) + 1);
+    }
+    comp.innerHTML = [...groups.values()]
+      .map(({ it, n }) => {
+        const dup = nameCount.get(it.board_stop_name) > 1 && it.board_next_stop;
+        const label = dup ? `${it.board_stop_name}(${it.board_next_stop} 방면)` : it.board_stop_name;
+        return `<b>${esc(label)}</b> ${n}`;
+      })
       .join(' · ');
     comp.hidden = false;
   } else {
@@ -280,13 +332,20 @@ function card(it) {
     ? `뛰어서 ${it.run_to_board_min}분 <s>도보 ${it.walk_to_board_min}분</s>`
     : `도보 ${it.walk_to_board_min}분`;
 
+  // 길 양쪽에 이름이 같은 정류장이 있으면 이름만으로는 어느 쪽인지 모른다.
+  // 표지판처럼 '다음 정류장 방면' 을 붙이고, 노선번호 옆에 행선판을 적는다.
+  const heading = it.board_next_stop
+    ? `<p class="heading">${esc(it.board_next_stop)} 방면</p>` : '';
+  const bound = it.bound_for ? ` <span class="bound">${esc(it.bound_for)}행</span>` : '';
+
   el.innerHTML = `
     <div class="stop-row">
       <button class="stop" type="button">${esc(it.board_stop_name)}</button>
       <span class="walk">${move}</span>
     </div>
+    ${heading}
     <span class="grade ${it.catch}">${GRADE[it.catch]} ${fmtMargin(it)}</span>
-    <p class="route">${esc(it.route_name)}번 <span class="eta">${it.eta_min}분 후</span></p>
+    <p class="route">${esc(it.route_name)}번${bound} <span class="eta">${it.eta_min}분 후</span></p>
     <p class="leg">→ ${esc(it.alight_stop_name)} 하차, 도보 ${it.walk_from_alight_min}분</p>
     <p class="arrive">${it.arrive_at} 도착 · 총 ${it.total_min}분</p>
     ${tags.length ? `<p class="tags">${tags.map((t) => `<span>${esc(t)}</span>`).join('')}</p>` : ''}
@@ -341,8 +400,8 @@ $('back').onclick = () => show('home');
 $('refresh').onclick = () => lastQuery && run(lastQuery.query, lastQuery.label);
 $('edit-token').onclick = () => { askToken(true); loadPlaces(); };
 $('edit-places').onclick = () => setEditing(!editing);
-$('add-place').onclick = () => {
-  setEditing(false);   // 추가하고 돌아왔을 때 편집 모드가 켜져 있으면 헷갈린다
+$('open-search').onclick = () => {
+  setEditing(false);   // 검색하고 돌아왔을 때 편집 모드가 켜져 있으면 헷갈린다
   openSearch();
 };
 
@@ -350,7 +409,7 @@ $('add-place').onclick = () => {
 // 좌표를 사람이 알 리가 없다. 이름으로 찾아 프로그램이 좌표를 가져온다 [F-19].
 function openSearch() {
   show('search');
-  $('hits').innerHTML = '<p class="empty">장소 이름이나 주소를 입력하세요</p>';
+  $('hits').innerHTML = '<p class="empty">장소 이름이나 주소를 입력하세요.<br>누르면 바로 경로를 찾아요</p>';
   $('search-q').value = '';
   $('search-q').focus();
 }
@@ -395,7 +454,7 @@ function showHits(hits) {
     b.innerHTML = `
       <span class="hit-name">${esc(h.name)}${h.source === 'stop' ? ' <em>정류장</em>' : ''}</span>
       <span class="hit-addr">${esc(h.address || '')}</span>${dist}`;
-    b.onclick = () => savePlace(h);
+    b.onclick = () => onDestination({ ...h, saved: false });
     box.appendChild(b);
   }
 }
@@ -404,34 +463,74 @@ function fmtDist(m) {
   return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
 }
 
-async function savePlace(hit) {
+// 즐겨찾기에 저장한다. 저장한 이름을 돌려주고, 취소하면 null.
+// 화면 이동은 하지 않는다 - 결과 화면의 ☆ 에서 부르면 그 자리에 있어야 한다.
+async function saveFavorite(hit) {
   // 정류장 좌표를 출발지로 쓰면 도보 시간이 0 에 가깝게 잡혀 판정이 무의미해진다.
   if (hit.source === 'stop' &&
       !confirm(`'${hit.name}' 는 정류장 위치예요.\n출발지로 쓰면 도보 시간이 0분으로 잡혀요. 그대로 저장할까요?`)) {
-    return;
+    return null;
   }
-  const name = window.prompt('저장할 이름 (예: 집, 회사)', hit.name.slice(0, 20));
-  if (!name || !name.trim()) return;
+  const name = window.prompt('즐겨찾기 이름 (예: 집, 회사)', hit.name.slice(0, 20));
+  if (!name || !name.trim()) return null;
+  const clean = name.trim().slice(0, 20);
   try {
-    await api('/api/places', null, { name: name.trim().slice(0, 20), lat: hit.lat, lon: hit.lon });
-    show('home');
-    loadPlaces();
+    await api('/api/places', null, { name: clean, lat: hit.lat, lon: hit.lon });
   } catch (e) {
     alert(e.message);
+    return null;
   }
+  loadPlaces();  // 홈 목록을 뒤에서 갱신해 둔다
+  return clean;
 }
 
 // 집처럼 '지금 내가 있는 곳'을 저장할 때가 제일 흔하다. 검색을 건너뛴다.
-$('use-here').onclick = () => {
+$('use-here').onclick = async () => {
   if (!coords) return alert(gpsError || '아직 위치를 못 잡았어요');
-  savePlace({
+  const name = await saveFavorite({
     name: '현재 위치',
     lat: coords.lat,
     lon: coords.lon,
-    address: `오차 ${Math.round(coords.accuracy)}m`,
     source: 'gps',
   });
+  if (name) show('home');
 };
+
+/* ---------------------------------------------------------------- 테마 */
+// 자동(기기 설정) → 밝게 → 어둡게 순서로 돈다. 첫 페인트 전 적용은 index.html 의
+// 인라인 스크립트가 하고, 여기서는 바꿀 때만 다시 칠한다.
+const THEME_KEY = 'nowbus.theme';
+const THEMES = ['auto', 'light', 'dark'];
+const THEME_LABEL = { auto: '자동', light: '밝게', dark: '어둡게' };
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+function getTheme() {
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    return THEMES.includes(t) ? t : 'auto';
+  } catch { return 'auto'; }
+}
+
+function applyTheme(t) {
+  const root = document.documentElement;
+  if (t === 'auto') delete root.dataset.theme;
+  else root.dataset.theme = t;
+  const dark = t === 'dark' || (t === 'auto' && darkQuery.matches);
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#111417' : '#f6f7f9';
+  $('edit-theme').textContent = `화면: ${THEME_LABEL[t]}`;
+}
+
+$('edit-theme').onclick = () => {
+  const next = THEMES[(THEMES.indexOf(getTheme()) + 1) % THEMES.length];
+  try {
+    if (next === 'auto') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, next);
+  } catch { /* 사파리 비공개 모드: 이번 세션에만 적용된다 */ }
+  applyTheme(next);
+};
+// '자동' 일 때 기기의 다크모드가 바뀌면 따라간다 (CSS 는 알아서 따라가고, 이건 상단 색).
+darkQuery.addEventListener?.('change', () => applyTheme(getTheme()));
+applyTheme(getTheme());
 
 /* ---------------------------------------------------------------- SW */
 // ?nosw=1 로 열면 등록을 해제한다. 캐시가 의심스러울 때 쓰는 탈출구.

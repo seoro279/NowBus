@@ -280,3 +280,12 @@ class TestSprint:
         assert len(_rank_sprints([faster], best, cfg)) == 1
         # 편한 후보가 아예 없으면 뛰는 게 유일한 수단이므로 남긴다.
         assert len(_rank_sprints([slower], [], cfg)) == 1
+
+
+async def test_plans_carry_the_heading(repo, coords):
+    """카드에 '○○ 방면' 과 '○○행' 을 띄우려면 Plan 이 들고 와야 한다."""
+    provider = MockProvider({SANGGYE: [arr(SANGGYE, 8, 1, headway_min=10.0)]})
+    out = await plan_now(coords(SANGGYE), coords(GANGNAM9), repo, provider, Settings())
+    p = next(p for p in out.best if p.board.stop_id == SANGGYE)
+    assert p.board_next_stop == "상계10동우체국"
+    assert p.bound_for == "강남역"

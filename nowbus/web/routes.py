@@ -54,6 +54,9 @@ def _to_item(rank: int, p: Plan, now: datetime) -> PlanItem:
         board_stop_ars=p.board.ars_id,
         board_lat=p.board.lat,
         board_lon=p.board.lon,
+        board_stop_id=p.board.stop_id,
+        board_next_stop=p.board_next_stop,
+        bound_for=p.bound_for,
         walk_to_board_min=round(p.walk_to_board_min),
         route_name=p.route.route_name,
         eta_min=round(p.eta_min),
@@ -92,11 +95,17 @@ async def get_plan(
     to: str | None = Query(None, description="목적지 즐겨찾기 이름"),
     to_lat: float | None = Query(None, ge=-90, le=90),
     to_lon: float | None = Query(None, ge=-180, le=180),
+    to_name: str | None = Query(
+        None, max_length=50, description="좌표로 준 목적지의 표시 이름 (검색 결과에서 바로 갈 때)"
+    ),
     from_: str | None = Query(None, alias="from", description="GPS 실패 시 폴백"),
     radius: int | None = Query(None, ge=100, le=2000, description="출발 반경(m). 재검색용"),
 ) -> PlanResponse:
     origin, origin_label = _resolve(repo, lat, lon, from_, "출발")
     dest, dest_label = _resolve(repo, to_lat, to_lon, to, "목적")
+    if to_name and to_lat is not None and to_lon is not None:
+        # 즐겨찾기에 없는 곳으로 바로 갈 때. 이름이 없으면 '지정 좌표' 로 남는다.
+        dest_label = to_name
 
     cfg = settings
     if radius:

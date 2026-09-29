@@ -15,9 +15,14 @@
   --miss-bg: #fdeceb;
   --run-bg: #e7f0fd;
   --tap: 56px;
+  color-scheme: light;
 }
+/* 테마는 세 가지다. 자동(기기 설정) / 밝게 / 어둡게.
+   index.html 이 <html data-theme="light|dark"> 를 붙이고, 자동이면 붙이지 않는다.
+   어두운 값을 두 번 적는 이유: '자동 + 기기가 다크' 와 '어둡게 고정' 이 서로 다른
+   선택자라 CSS 만으로는 하나로 묶을 수 없다. 값을 바꿀 때는 두 곳을 같이 고친다. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #111417;
     --card: #1b2026;
     --ink: #e8ecf1;
@@ -32,7 +37,25 @@
     --tight-bg: #332609;
     --miss-bg: #34191a;
     --run-bg: #132840;
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #111417;
+  --card: #1b2026;
+  --ink: #e8ecf1;
+  --dim: #98a3b0;
+  --line: #2b323a;
+  --accent: #6ea8ff;
+  --safe: #57d093;
+  --tight: #ffc75c;
+  --miss: #ff8a80;
+  --run: #8fc0ff;
+  --safe-bg: #16301f;
+  --tight-bg: #332609;
+  --miss-bg: #34191a;
+  --run-bg: #132840;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -55,6 +78,18 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 .gps { margin: 6px 0 0; color: var(--dim); font-size: 14px; }
 .gps.ok { color: var(--safe); }
 .gps.err { color: var(--miss); }
+/* 홈의 검색창. 실제 입력은 검색 화면에서 받고 여기는 입구만 맡는다 -
+   홈에 입력칸을 두면 포커스가 잡히며 키보드가 올라와 즐겨찾기 버튼을 가린다. */
+.searchbar {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: var(--tap); margin-top: 22px; padding: 0 16px;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--card); color: var(--dim);
+  font-size: 17px; text-align: left; cursor: pointer;
+}
+.searchbar:active { transform: scale(0.99); }
+.settings { display: flex; justify-content: center; gap: 18px; margin-top: 18px; }
+.settings .link { margin: 0; }
 .ask-row { display: flex; align-items: baseline; margin: 28px 0 12px; }
 .ask { margin: 0; color: var(--dim); font-size: 15px; }
 .link.edit { margin: 0 0 0 auto; padding: 4px 8px; text-decoration: none; }
@@ -93,7 +128,12 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
   min-width: 44px; min-height: 44px;
   border: 0; background: none; color: var(--ink); font-size: 24px; cursor: pointer;
 }
-.trip { display: flex; flex-direction: column; }
+.trip { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.star {
+  min-width: 44px; min-height: 44px; border: 0; background: none;
+  color: var(--tight); font-size: 26px; cursor: pointer;
+}
+.star:disabled { cursor: default; }
 .trip strong { font-size: 17px; }
 .fresh { font-size: 13px; color: var(--dim); transition: opacity 0.3s; }
 .fresh.stale { opacity: 0.45; }
@@ -128,6 +168,10 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
   text-underline-offset: 4px; cursor: pointer;
 }
 .walk { font-size: 14px; color: var(--dim); white-space: nowrap; margin-left: auto; }
+/* 같은 이름 정류장이 길 양쪽에 있을 때 어느 쪽인지. 표지판의 '○○ 방면' 표기. */
+.heading { margin: 2px 0 0; font-size: 13px; color: var(--dim); }
+.heading::before { content: "↗ "; }
+.route .bound { font-size: 14px; font-weight: 500; color: var(--dim); }
 
 .grade {
   display: inline-block; margin: 8px 0 2px; padding: 3px 9px;
@@ -189,3 +233,5 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
 }
 .hit-addr { font-size: 13px; color: var(--dim); }
 .hit-dist { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+/* 홈의 빈 즐겨찾기 안내. 검색이 주 동선이라 크게 비워둘 필요가 없다. */
+.empty.small { padding: 16px; font-size: 14px; }

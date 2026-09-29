@@ -269,3 +269,45 @@ class TestDeletePlace:
         await client.delete("/api/places", params={"name": "집"})
         r = await client.get("/api/plan", params={"lat": 37.6632, "lon": 127.0637, "to": "회사"})
         assert r.status_code == 200
+
+
+class TestPlanToSearchedPlace:
+    """즐겨찾기에 없는 곳으로 바로 간다. 검색 → 탭 → 경로."""
+
+    async def test_coords_with_a_name(self, client, tmp_path):
+        repo = StaticRepo(str(tmp_path / "t.db"))
+        q = "SELECT lat, lon FROM stop WHERE stop_id = ?"
+        row = repo.conn.execute(q, (GANGNAM9,)).fetchone()
+        repo.close()
+        r = await client.get(
+            "/api/plan",
+            params={
+                "from": "집",
+                "to_lat": row["lat"],
+                "to_lon": row["lon"],
+                "to_name": "스타벅스 강남역점",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["dest_label"] == "스타벅스 강남역점"
+        assert body["items"], "즐겨찾기가 아니어도 경로가 나와야 한다"
+
+    async def test_does_not_save_a_favorite(self, client, tmp_path):
+        """바로 가기는 목록을 건드리지 않는다. 저장은 사용자가 고를 때만."""
+        params = {"from": "집", "to_lat": 37.4979, "to_lon": 127.0276, "to_name": "x"}
+        await client.get("/api/plan", params=params)
+        names = {p["name"] for p in (await client.get("/api/places")).json()}
+        assert names == {"집", "회사"}
+
+    async def test_name_without_coords_is_ignored(self, client):
+        """to_name 만 오면 즐겨찾기 이름(to)이 우선이다. 이름표가 목적지를 바꾸면 안 된다."""
+        r = await client.get("/api/plan", params={"from": "집", "to": "회사", "to_name": "딴곳"})
+        assert r.json()["dest_label"] == "회사"
+
+    async def test_items_carry_direction(self, client):
+        body = (await client.get("/api/plan", params={"from": "집", "to": "회사"})).json()
+        item = body["items"][0]
+        assert item["board_stop_id"]
+        assert item["board_next_stop"]
+        assert item["bound_for"]
