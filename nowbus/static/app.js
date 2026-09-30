@@ -41,7 +41,15 @@ async function api(path, params, body, method) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
-  const res = await fetch(url, init);
+  let res;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    // fetch 는 HTTP 오류가 아니라 '서버에 닿지 못했을 때'만 여기로 온다. 사파리는
+    // 이걸 'Load failed' 라고만 알려줘서 원인을 짐작할 수 없었다. 화면은 서비스 워커
+    // 캐시로 멀쩡히 뜨므로, 서버가 죽었다는 걸 여기서 분명히 말해야 한다.
+    throw new Error('서버에 연결할 수 없어요. 맥이 잠자기 중이거나 서버가 꺼져 있을 수 있어요');
+  }
   if (res.status === 401) {
     askToken(true);
     throw new Error('토큰이 필요해요');
