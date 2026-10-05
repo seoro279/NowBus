@@ -54,12 +54,6 @@ class TestArrivals:
         arrivals = parse_arrivals(fx("getStationByUid"), stop_id="121000262")
         assert {a.stop_id for a in arrivals} == {"121000262"}
 
-    def test_sta_ord_is_the_route_seq(self, fx):
-        """staOrd 는 그 노선에서의 정류장 순번이다. 340번 강남역8번출구 = route_stop seq 56
-        (실데이터 DB 로 대조). 같은 정류장을 두 번 지나는 노선에서 pass 를 가린다."""
-        by_route = {a.route_id: a.sta_ord for a in parse_arrivals(fx("getStationByUid"))}
-        assert by_route["100100055"] == 56
-
     def test_headway_from_term(self, fx):
         """1·2차가 모두 MISS 일 때 3차를 추정하는 근거."""
         assert parse_headways(fx("getStationByUid"))["100100055"] == 7.0

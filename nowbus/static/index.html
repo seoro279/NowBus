@@ -32,26 +32,17 @@
 <link rel="icon" type="image/png" href="/icons/icon-192.png">
 <!-- ?v= 는 캐시 키다. 폰 브라우저가 옛 app.js 를 계속 내주는 일이 실제로 있었다.
      아래 build 표시(사용자가 보는 버전)와 별개로, app.js/style.css 가 바뀌면 **항상**
-     이 값과 sw.js 의 VERSION 을 바꾼다. 같은 버전 안에서 고칠 때는 5.1, 5.2 처럼. -->
-<link rel="stylesheet" href="/style.css?v=5.0">
+     이 값과 sw.js 의 VERSION 을 바꾼다. 같은 버전 안에서 고칠 때는 4.1, 4.2 처럼. -->
+<link rel="stylesheet" href="/style.css?v=4.3">
 </head>
 <body>
 
 <!-- ① 목적지 선택 -->
 <main id="home" class="screen">
   <header class="home-head">
-    <h1>NowBus <span class="build">v5</span></h1>
+    <h1>NowBus <span class="build">v4</span></h1>
+    <p id="gps" class="gps">위치 확인 중…</p>
   </header>
-
-  <!-- 출발지. 기본은 현재 위치이고, 누르면 즐겨찾기·검색으로 바꾼다. -->
-  <button id="origin" class="origin" type="button">
-    <span class="origin-k">출발</span>
-    <span class="origin-v">
-      <strong id="origin-name">현재 위치</strong>
-      <span id="gps" class="gps">위치 확인 중…</span>
-    </span>
-    <span class="origin-change">바꾸기</span>
-  </button>
 
   <!-- 검색해서 바로 간다. 즐겨찾기 등록은 결과 화면에서 고른다(옵션). -->
   <button id="open-search" class="searchbar" type="button">
@@ -96,20 +87,12 @@
   <button id="refresh" class="btn refresh">새로고침</button>
 </main>
 
-<!-- ③ 장소 검색 → 탭하면 바로 경로. 출발지를 고를 때도 같은 화면을 쓴다. -->
+<!-- ③ 장소 검색 → 탭하면 바로 경로 -->
 <main id="search" class="screen" hidden>
   <header class="result-head">
     <button id="search-back" class="back" aria-label="뒤로">←</button>
-    <div class="trip"><strong id="search-title">장소 검색</strong></div>
+    <div class="trip"><strong>장소 검색</strong></div>
   </header>
-
-  <!-- 출발지 고를 때만 보인다: 현재 위치 / 즐겨찾기 -->
-  <section id="origin-opts" class="origin-opts" hidden>
-    <p id="origin-why" class="banner" hidden></p>
-    <button id="origin-here" class="btn">📍 현재 위치</button>
-    <div id="origin-places" class="places"></div>
-    <p class="ask">또는 검색</p>
-  </section>
 
   <form id="search-form" class="search-form">
     <input id="search-q" type="search" inputmode="search" enterkeyhint="search"
@@ -121,6 +104,6 @@
   <div id="hits" class="hits" aria-live="polite"></div>
 </main>
 
-<script src="/app.js?v=5.0"></script>
+<script src="/app.js?v=4.3"></script>
 </body>
 </html>
