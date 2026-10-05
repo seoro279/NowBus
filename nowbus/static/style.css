@@ -133,7 +133,6 @@ h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
   min-width: 44px; min-height: 44px; border: 0; background: none;
   color: var(--tight); font-size: 26px; cursor: pointer;
 }
-.star:disabled { cursor: default; }
 .trip strong { font-size: 17px; }
 .fresh { font-size: 13px; color: var(--dim); transition: opacity 0.3s; }
 .fresh.stale { opacity: 0.45; }

@@ -167,14 +167,22 @@ function setEditing(on) {
   for (const p of places) box.appendChild(placeRow(p));
 }
 
-async function removePlace(p) {
-  if (!confirm(`'${p.name}' 을 목록에서 지울까요?`)) return;
+// 즐겨찾기 하나를 지운다. 지웠으면 true.
+// 홈의 ✕ 와 결과 화면의 ★ 가 같이 쓴다 - 어디서 지우든 같은 문구로 묻는다.
+async function deleteFavorite(name) {
+  if (!confirm(`'${name}' 을 목록에서 지울까요?`)) return false;
   try {
-    await api('/api/places', { name: p.name }, undefined, 'DELETE');
+    await api('/api/places', { name }, undefined, 'DELETE');
   } catch (e) {
-    return alert(e.message);
+    alert(e.message);
+    return false;
   }
-  places = places.filter((x) => x.name !== p.name);
+  places = places.filter((x) => x.name !== name);
+  return true;
+}
+
+async function removePlace(p) {
+  if (!(await deleteFavorite(p.name))) return;
   if (!places.length) {
     setEditing(false);
     return loadPlaces();
@@ -213,18 +221,40 @@ function findSaved(dest) {
   return places.find((p) => key(p) === key(dest)) || null;
 }
 
+// 지금 목적지가 즐겨찾기에 있으면 그 항목, 없으면 null.
+function savedEntry() {
+  if (!currentDest) return null;
+  return currentDest.saved ? currentDest : findSaved(currentDest);
+}
+
 function updateStar() {
   const star = $('star');
   if (!currentDest) { star.hidden = true; return; }
-  const saved = currentDest.saved ? currentDest : findSaved(currentDest);
+  const saved = savedEntry();
   star.hidden = false;
   star.textContent = saved ? '★' : '☆';
-  star.disabled = !!saved;
-  star.setAttribute('aria-label', saved ? `즐겨찾기 '${saved.name}'` : '즐겨찾기에 추가');
+  star.setAttribute('aria-label', saved ? `즐겨찾기에서 '${saved.name}' 빼기` : '즐겨찾기에 추가');
 }
 
+// ☆ 는 저장, ★ 는 삭제. 홈의 편집 모드까지 가지 않고 그 자리에서 되돌릴 수 있다.
 $('star').onclick = async () => {
-  if (!currentDest || currentDest.saved) return;
+  if (!currentDest) return;
+  const saved = savedEntry();
+
+  if (saved) {
+    if (!(await deleteFavorite(saved.name))) return;
+    currentDest = { ...currentDest, saved: false };
+    // 즐겨찾기 이름으로 조회하던 중이었다면 좌표로 바꿔 둔다. 그대로 두면 방금
+    // 지운 이름을 찾느라 '새로고침' 이 404 가 난다.
+    if (lastQuery && lastQuery.query.to === saved.name) {
+      const { to, ...rest } = lastQuery.query;
+      lastQuery.query = { ...rest, ...destParams(currentDest) };
+    }
+    updateStar();
+    loadPlaces();  // 홈 목록을 뒤에서 갱신해 둔다
+    return;
+  }
+
   const name = await saveFavorite(currentDest);
   if (!name) return;
   currentDest = { ...currentDest, name, saved: true };
