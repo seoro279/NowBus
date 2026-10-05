@@ -343,7 +343,7 @@ def serve(
     port: int = typer.Option(8000),
     reload: bool = typer.Option(False, "--reload"),
 ) -> None:
-    """개발 서버를 띄운다. 배포는 Cloudflare Tunnel 등으로 HTTPS 를 씌운다."""
+    """서버를 띄운다. 폰에서 쓰려면 Tailscale Funnel 로 HTTPS 를 씌운다 (README 6)."""
     import uvicorn
 
     cfg = Settings()
