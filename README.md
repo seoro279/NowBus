@@ -305,7 +305,7 @@ python scripts/smoke_double_pass.py
 | `term` | 배차간격(분). 1·2차가 모두 MISS 일 때 3차 추정에 쓴다 |
 | `congestion1` | 1~4. **0 은 미측정**이지 '한산함'이 아니다 |
 | `seq` | 노선 전체에서 유일. 그래서 PK 는 `(route_id, seq)` 로 충분 |
-| `staOrd` | 도착정보의 '그 노선에서 몇 번째 정류장'. **`route_stop.seq` 와 같은 값** (340·N61·N64 를 xlsx 와 대조) |
+| `staOrd` | 도착정보의 '그 노선에서 몇 번째 정류장'. **`route_stop.seq` 와 같은 값** (340·N61·N64 를 xlsx 와 대조). 같은 정류장을 두 번 지나는 노선은 **pass 마다 한 건씩** 온다 (5616번 실물) |
 | stop_id | `getStaionByRoute` 의 `<station>` = `getStationByPos` 의 `<stationId>` |
 
 ### 함정 세 개 — 전부 실물에서 확인됨
@@ -450,7 +450,7 @@ nowbus/
 
 scripts/smoke.py        [x] 버스 API 진단 도구
 scripts/smoke_geocode.py [x] 카카오 로컬 응답 확인 (로컬에서 1회 필수)
-scripts/smoke_double_pass.py [ ] 5616번 이중 통과 정류장 도착정보 확인 (맥에서 1회)
+scripts/smoke_double_pass.py [x] 5616번 이중 통과 정류장 도착정보 확인 (2026-10-05 완료: pass 마다 한 건)
 tests/                  [x] 173개. 픽스처 기반이라 오프라인
 ```
 

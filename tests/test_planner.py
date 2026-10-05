@@ -4,6 +4,8 @@
 '테스트를 위한 가짜 노선'이 만들어내는 착시가 없다.
 """
 
+import pathlib
+
 import pytest
 
 from nowbus.config import Settings
@@ -11,7 +13,7 @@ from nowbus.core.planner import plan_now
 from nowbus.db.repo import StaticRepo, init_schema
 from nowbus.models import Arrival, Catch, Stop
 from nowbus.providers.base import ArrivalProvider
-from nowbus.providers.seoul import parse_route_stops
+from nowbus.providers.seoul import parse_arrivals, parse_route_stops
 
 ROUTE = "100100025"  # 146번
 SANGGYE = "110000399"  # seq   1  7단지영업소
@@ -350,6 +352,14 @@ class TestRoundTripRoute:
         assert [c.n_stops for c in combos] == [21]
 
 
+# 사용자 맥에서 scripts/smoke_double_pass.py 로 받은 실물 응답 (2026-10-05).
+# 5616번이 staOrd 14 와 87 로 **두 건** 왔다. 파일이 저장소에 없으면 건너뛴다.
+REAL_5616 = pathlib.Path(__file__).parent / "fixtures" / "getStationByUid_21218_5616.xml"
+needs_real = pytest.mark.skipif(
+    not REAL_5616.exists(), reason="실물 응답 getStationByUid_21218_5616.xml 이 아직 없다"
+)
+
+
 class TestDoublePass:
     """실물 5616번. 같은 정류장을 두 번 지나는 노선 (서울 718개 중 224개가 이렇다).
 
@@ -427,6 +437,34 @@ class TestDoublePass:
         """정적 데이터와 실시간 seq 가 어긋난 경우. 후보를 통째로 잃지 않는다."""
         out = await self._plan(r5616, self.OMOKGYO, sta_ord=999)
         assert [p.route.route_name for p in out.best] == ["5616"]
+
+    def _real(self):
+        got = parse_arrivals(REAL_5616.read_text(encoding="utf-8"), stop_id=self.NANGOK)
+        return [a for a in got if a.route_id == self.ROUTE]
+
+    @needs_real
+    def test_real_api_returns_one_item_per_pass(self):
+        """실물 확인 사항. 같은 노선이 pass 마다 따로 오고, staOrd 가 seq 를 가리킨다."""
+        assert {a.sta_ord for a in self._real()} == {14, 87}
+
+    @needs_real
+    @pytest.mark.parametrize("reverse", [False, True], ids=["api_order", "reversed"])
+    async def test_real_arrivals_go_to_the_right_pass(self, r5616, reverse):
+        """실물: 둘째 pass 차(10분 뒤)가 첫 pass 차(13분 뒤)보다 먼저 온다. 오목교역은
+        첫 pass 에서만 가므로 13분 뒤 차를 골라야 한다.
+
+        순서를 뒤집어서도 돌린다. pick_boardable() 은 1차/2차 order 로만 정렬하므로,
+        staOrd 를 무시하는 코드는 응답에서 어느 pass 가 먼저 오느냐에 따라 운 좋게
+        맞기도 한다. 실물 응답은 staOrd 14 가 먼저였다 - API 가 순서를 보장하지 않는다."""
+        real = self._real()
+        provider = MockProvider({self.NANGOK: real[::-1] if reverse else real})
+        out = await plan_now(
+            self._at(r5616, self.NANGOK), self._at(r5616, self.OMOKGYO), r5616, provider, Settings()
+        )
+        first_pass = min(a.eta_min for a in real if a.sta_ord == 14)
+        assert [p.route.route_name for p in out.best] == ["5616"]
+        assert out.best[0].eta_min == first_pass
+        assert out.best[0].ride_min == 38 * Settings().ride_min_per_stop
 
 
 async def test_single_pass_stop_ignores_staord(repo, coords):
