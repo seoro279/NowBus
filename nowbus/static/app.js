@@ -348,6 +348,11 @@ function render(data) {
   startFreshness(data.generated_at);
 }
 
+// 서울 버스도착 API 의 차량 내부 혼잡도 코드. 교통카드 승하차로 추정한 값이다.
+// 0(정보 없음)은 서버가 null 로 보내 태그 자체가 안 붙는다. 표에 없는 코드는
+// 숫자 그대로 둔다 - 뜻을 지어내지 않는다. (6 은 있다는 자료와 없다는 자료가 섞여 있다)
+const CONGESTION = { 3: '여유', 4: '보통', 5: '혼잡', 6: '매우 혼잡' };
+
 const GRADE = {
   SAFE: '✓ 여유',
   TIGHT: '⚠ 서둘러야 함',
@@ -361,7 +366,7 @@ function card(it) {
 
   const tags = [];
   if (it.is_last) tags.push('막차');
-  if (it.congestion) tags.push(`혼잡도 ${it.congestion}`);
+  if (it.congestion) tags.push(`혼잡도 ${CONGESTION[it.congestion] || it.congestion}`);
   if (it.is_estimated) tags.push('배차간격 추정');
 
   // RUN 이면 실제로 쓰는 시간은 뛰는 시간이다. 도보 시간도 같이 보여줘야
