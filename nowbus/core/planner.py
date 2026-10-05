@@ -109,10 +109,10 @@ def _rank_sprints(sprints: list[Plan], best: list[Plan], cfg: Settings) -> list[
         limit = min(p.total_min for p in best)
         scored = [p for p in scored if p.total_min < limit]
 
-    # 같은 (정류장, 노선) 은 하나만. 뛰는 후보에 2차 차량까지 늘어놓을 필요는 없다.
-    uniq: dict[tuple[str, str], Plan] = {}
+    # 노선 하나당 한 장. 본 목록(ranking._dedupe)과 같은 규칙이다.
+    uniq: dict[str, Plan] = {}
     for p in sorted(scored, key=lambda p: p.score):
-        uniq.setdefault((p.board.stop_id, p.route.route_id), p)
+        uniq.setdefault(p.route.route_id, p)
     return sorted(uniq.values(), key=lambda p: p.score)[: cfg.sprint_top_n]
 
 

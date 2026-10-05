@@ -289,3 +289,62 @@ async def test_plans_carry_the_heading(repo, coords):
     p = next(p for p in out.best if p.board.stop_id == SANGGYE)
     assert p.board_next_stop == "상계10동우체국"
     assert p.bound_for == "강남역"
+
+
+class TestRoundTripRoute:
+    """실물 5536번(왕복 노선)으로 재현한 회귀 테스트.
+
+    5536번은 광명 → 노량진 → 중앙대(반환점) → 노량진 → 광명 을 한 seq 축으로 달린다.
+    노량진역 근처에서 구로디지털단지역(seq 50)으로 갈 때:
+      - 노량진역2번출구(seq 38)에서 타면 12정거장   ← 맞는 방향
+      - 노량진역3번출구(seq 29)에서 타면 21정거장   ← 반대 방향, 반환점을 돌아온다
+    둘 다 seq 가 증가하므로 직통 조합이다. 예전에는 둘 다 카드로 나왔다.
+
+    사용자의 실제 위치가 아니라 같은 노선의 다른 구간이다 (인계 메모 §6).
+    """
+
+    @pytest.fixture
+    def r5536(self):
+        import json
+        import pathlib
+
+        from nowbus.models import RouteStopRow
+
+        path = pathlib.Path(__file__).parent / "fixtures" / "route_5536.json"
+        rows = json.loads(path.read_text(encoding="utf-8"))["rows"]
+        r = StaticRepo(":memory:")
+        init_schema(r.conn)
+        r.upsert_route_stops([RouteStopRow(**x) for x in rows])
+        seq = {x["seq"]: x for x in rows}
+        yield r, seq
+        r.close()
+
+    def _trip(self, seq):
+        origin = ((seq[29]["lat"] + seq[38]["lat"]) / 2, (seq[29]["lon"] + seq[38]["lon"]) / 2)
+        return origin, (seq[50]["lat"], seq[50]["lon"])
+
+    async def test_the_route_appears_once(self, r5536):
+        repo, seq = r5536
+        origin, dest = self._trip(seq)
+        provider = MockProvider(
+            {x["stop_id"]: [arr(x["stop_id"], 9, 1, route="100100268")] for x in seq.values()}
+        )
+        out = await plan_now(origin, dest, repo, provider, Settings())
+        assert [p.route.route_name for p in out.best] == ["5536"]
+
+    async def test_the_kept_one_rides_the_right_way(self, r5536):
+        """남는 카드는 반환점을 돌지 않는 쪽(복편 정류장)이어야 한다."""
+        repo, seq = r5536
+        origin, dest = self._trip(seq)
+        provider = MockProvider(
+            {x["stop_id"]: [arr(x["stop_id"], 9, 1, route="100100268")] for x in seq.values()}
+        )
+        out = await plan_now(origin, dest, repo, provider, Settings())
+        board_seq = {x["stop_id"]: s for s, x in seq.items()}[out.best[0].board.stop_id]
+        assert board_seq > 34, f"반환점(seq 34) 이전 정류장 seq {board_seq} 에서 타는 경로가 남았다"
+
+    def test_the_turnaround_ride_is_still_a_valid_combo(self, r5536):
+        """§2-1 보호. 반환점을 지나는 조합 자체를 지우면 안 된다 - 랭킹에서 밀려날 뿐이다."""
+        repo, seq = r5536
+        combos = repo.find_direct_combos([seq[29]["stop_id"]], [seq[50]["stop_id"]])
+        assert [c.n_stops for c in combos] == [21]

@@ -124,3 +124,26 @@ class TestBasics:
 
     def test_fewer_than_top_n(self):
         assert len(rank([plan("A", "1", 30)], Weights())) == 1
+
+
+class TestOnePerRoute:
+    """노선 하나당 한 장. 실사용에서 같은 5536번이 세 장 나온 문제."""
+
+    def test_same_route_at_two_stops_keeps_only_the_better(self):
+        good = plan("A", "5536", 30)
+        loop = plan("B", "5536", 77)  # 반대편에서 타서 반환점을 돌아오는 경로
+        out = rank([good, loop], Weights(tight=0, walk=0))
+        assert [(p.board.stop_id, p.total_min) for p in out] == [("A", 30)]
+
+    def test_different_routes_are_all_kept(self):
+        out = rank([plan("A", "5536", 30), plan("A", "6514", 35)], Weights(tight=0, walk=0))
+        assert {p.route.route_id for p in out} == {"5536", "6514"}
+
+    def test_diversity_cannot_bring_the_dropped_one_back(self):
+        """min_distinct_stops 가 '다른 정류장' 을 채우려고 버린 같은 노선을 되살리면 안 된다."""
+        out = rank(
+            [plan("A", "5536", 30), plan("B", "5536", 77)],
+            Weights(tight=0, walk=0),
+            min_distinct_stops=2,
+        )
+        assert len(out) == 1

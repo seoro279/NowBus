@@ -37,10 +37,23 @@ def score_plan(plan: Plan, w: Weights) -> float:
 
 
 def _dedupe(plans: list[Plan]) -> list[Plan]:
-    """같은 (정류장, 노선)은 하나만. 2차 차량은 1차가 MISS 일 때만 올라온다."""
-    best: dict[tuple[str, str], Plan] = {}
+    """노선 하나당 한 장. 그 노선을 타는 가장 좋은 방법만 남긴다.
+
+    예전에는 (정류장, 노선) 단위로 남겼다. 그랬더니 실사용에서 같은 5536번이 세
+    장 나왔고, 그중 둘은 **반대 방향 정류장**에서 타서 반환점을 돌아오는 경로였다
+    (총 30분짜리 옆에 77분·90분). 왕복 노선은 seq 1 → N 이 한 축이라 반대편에서
+    타도 seq 가 증가하므로 직통 조합으로 잡힌다 - 실제로 도착은 하니 조합 단계에서
+    거르면 안 된다(인계 메모 §2-1, direction 조인 사고). 대신 여기서 같은 노선의 더
+    나은 경로에 밀려나게 한다.
+
+    잃는 것: 같은 노선을 두 정류장에서 탈 수 있을 때 느린 쪽이 안 보인다. 같은
+    노선이면 대개 같은 버스를 앞뒤 정류장에서 타는 것이라 대안으로서 가치가 작고,
+    대안은 다른 노선이 맡는다. 서울 노선 718개는 번호가 겹치지 않아(실측)
+    route_id 로 묶는 것이 곧 화면의 '노선 번호' 로 묶는 것이다.
+    """
+    best: dict[str, Plan] = {}
     for p in plans:
-        key = (p.board.stop_id, p.route.route_id)
+        key = p.route.route_id
         if key not in best or p.score < best[key].score:
             best[key] = p
     return list(best.values())
