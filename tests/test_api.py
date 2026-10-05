@@ -97,6 +97,15 @@ class TestPlan:
         assert r.status_code == 200
         assert r.json()["origin_label"] == "현재 위치"
 
+    async def test_origin_picked_by_search(self, client):
+        """v5: 출발지를 검색으로 고르면 좌표 + 표시 이름으로 온다. 즐겨찾기가 아니어도 된다."""
+        r = await client.get(
+            "/api/plan",
+            params={"lat": 37.6632, "lon": 127.0637, "from_name": "상계역", "to": "회사"},
+        )
+        assert r.status_code == 200
+        assert r.json()["origin_label"] == "상계역"
+
     async def test_all_time_fields_are_integers(self, client):
         """프론트가 반올림 로직을 갖지 않게 한다."""
         body = (await client.get("/api/plan", params={"from": "집", "to": "회사"})).json()

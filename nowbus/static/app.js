@@ -10,6 +10,9 @@ let gpsError = null;
 let places = [];
 let editing = false;   // 홈의 편집 모드. 이때만 삭제 버튼이 존재한다
 let currentDest = null;  // 결과 화면의 목적지. {name, lat, lon, saved, source}
+let origin = null;       // 출발지. null = 현재 위치(기본). 아니면 {name, lat, lon, saved}
+let searchMode = 'dest'; // 검색 화면을 목적지('dest')로 쓰는지 출발지('origin')로 쓰는지
+let pendingDest = null;  // 출발지를 고르면 바로 이어서 조회할 목적지 (GPS 실패 폴백)
 let lastResponse = null;
 let lastQuery = null;    // 새로고침·반경확대에 재사용
 let freshnessTimer = null;
@@ -96,8 +99,8 @@ function startGps() {
       };
       const acc = Math.round(coords.accuracy);
       el.textContent = acc > 100
-        ? `현재 위치 (오차 ${acc}m — 정확도가 낮아요)`
-        : '현재 위치 확인됨';
+        ? `오차 ${acc}m — 정확도가 낮아요`
+        : '위치 확인됨';
       el.className = acc > 100 ? 'gps' : 'gps ok';
     },
     (err) => {
@@ -177,8 +180,26 @@ async function deleteFavorite(name) {
     alert(e.message);
     return false;
   }
+  const gone = places.find((x) => x.name === name);
   places = places.filter((x) => x.name !== name);
+  forgetSaved(gone);
   return true;
+}
+
+// 지운 즐겨찾기를 이름으로 가리키던 곳을 좌표로 바꿔 둔다. 그대로 두면 '새로고침' 이
+// 방금 지운 이름을 찾느라 404 가 난다. 출발지로 골라 둔 즐겨찾기도 마찬가지다.
+function forgetSaved(p) {
+  if (!p) return;
+  const asCoords = { name: p.name, lat: p.lat, lon: p.lon, saved: false };
+  if (origin && origin.saved && origin.name === p.name) {
+    origin = asCoords;
+    renderOrigin();
+  }
+  if (!lastQuery) return;
+  const q = { ...lastQuery.query };
+  if (q.from === p.name) { delete q.from; Object.assign(q, originParams(asCoords)); }
+  if (q.to === p.name) { delete q.to; Object.assign(q, destParams(asCoords)); }
+  lastQuery.query = q;
 }
 
 async function removePlace(p) {
@@ -199,19 +220,76 @@ function destParams(dest) {
     : { to_lat: dest.lat, to_lon: dest.lon, to_name: dest.name };
 }
 
-// GPS 가 없으면 출발지를 먼저 물어본다 (설계서 §10.3 폴백).
+// 출발지도 목적지와 같은 규칙이다. 즐겨찾기는 이름으로, 검색 결과는 좌표 + 표시 이름으로.
+function originParams(o) {
+  return o.saved
+    ? { from: o.name }
+    : { lat: o.lat, lon: o.lon, from_name: o.name };
+}
+
 function onDestination(dest) {
   currentDest = dest;
   const to = destParams(dest);
+  if (origin) return run({ ...originParams(origin), ...to }, `${origin.name} → ${dest.name}`);
   if (coords) return run({ lat: coords.lat, lon: coords.lon, ...to }, `현재 위치 → ${dest.name}`);
-  const others = places.filter((p) => p.name !== dest.name);
-  if (!others.length) return alert(gpsError || '출발지를 알 수 없어요');
-  const names = others.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
-  const pick = window.prompt(`출발지를 골라주세요\n${names}`, '1');
-  const from = others[Number(pick) - 1];
-  if (!from) return;
-  run({ from: from.name, ...to }, `${from.name} → ${dest.name}`);
+  // GPS 가 없으면 출발지를 먼저 고르게 하고, 고르면 바로 이어서 조회한다 (설계서 §10.3 폴백).
+  openOriginPicker(dest, gpsError || '아직 현재 위치를 못 잡았어요');
 }
+
+/* ---------------------------------------------------------------- 출발지 */
+// 기본은 현재 위치. 홈의 '출발' 을 누르면 즐겨찾기나 검색한 곳으로 바꾼다.
+// 저장하지 않는다 - 앱을 새로 켜면 다시 현재 위치다. 아침에 어제 고른 출발지가
+// 남아 있으면 엉뚱한 곳에서 출발한 결과를 보게 된다.
+function renderOrigin() {
+  $('origin-name').textContent = origin ? origin.name : '현재 위치';
+  $('gps').hidden = !!origin;
+  $('origin').classList.toggle('custom', !!origin);
+}
+
+function openOriginPicker(pending, why) {
+  pendingDest = pending || null;
+  searchMode = 'origin';
+  show('search');
+  $('search-title').textContent = '출발지 선택';
+  $('origin-opts').hidden = false;
+  $('use-here').hidden = true;
+  $('origin-why').hidden = !why;
+  $('origin-why').textContent = why ? `${why}. 출발지를 골라주세요` : '';
+  $('origin-here').classList.toggle('on', !origin);
+
+  const box = $('origin-places');
+  box.innerHTML = '';
+  for (const p of places) {
+    if (pendingDest && pendingDest.saved && p.name === pendingDest.name) continue;
+    const b = document.createElement('button');
+    b.className = origin && origin.saved && origin.name === p.name ? 'btn on' : 'btn';
+    b.textContent = p.name;
+    b.onclick = () => chooseOrigin({ ...p, saved: true });
+    box.appendChild(b);
+  }
+  $('hits').innerHTML = '<p class="empty">출발할 장소 이름이나 주소를 입력하세요</p>';
+  $('search-q').value = '';
+  // 포커스를 주지 않는다. 키보드가 올라와 현재 위치·즐겨찾기 버튼을 가린다.
+}
+
+function chooseOrigin(o) {
+  origin = o;
+  renderOrigin();
+  const next = pendingDest;
+  pendingDest = null;
+  if (next) return onDestination(next);
+  show('home');
+}
+
+$('origin').onclick = () => {
+  setEditing(false);
+  openOriginPicker(null);
+};
+$('origin-here').onclick = () => {
+  // 조회를 이어서 해야 하는데 위치가 없으면 다시 이 화면으로 돌아올 뿐이다.
+  if (!coords && pendingDest) return alert(gpsError || '아직 위치를 못 잡았어요');
+  chooseOrigin(null);
+};
 
 /* ---------------------------------------------------------------- 즐겨찾기 별 */
 // 이미 저장된 곳인지는 좌표로 본다. 이름은 사용자가 바꿔 저장하므로 기준이 못 된다.
@@ -243,13 +321,7 @@ $('star').onclick = async () => {
 
   if (saved) {
     if (!(await deleteFavorite(saved.name))) return;
-    currentDest = { ...currentDest, saved: false };
-    // 즐겨찾기 이름으로 조회하던 중이었다면 좌표로 바꿔 둔다. 그대로 두면 방금
-    // 지운 이름을 찾느라 '새로고침' 이 404 가 난다.
-    if (lastQuery && lastQuery.query.to === saved.name) {
-      const { to, ...rest } = lastQuery.query;
-      lastQuery.query = { ...rest, ...destParams(currentDest) };
-    }
+    currentDest = { ...currentDest, saved: false };  // lastQuery 는 deleteFavorite 가 고친다
     updateStar();
     loadPlaces();  // 홈 목록을 뒤에서 갱신해 둔다
     return;
@@ -451,13 +523,21 @@ $('open-search').onclick = () => {
 /* ------------------------------------------------------------ 장소 검색 */
 // 좌표를 사람이 알 리가 없다. 이름으로 찾아 프로그램이 좌표를 가져온다 [F-19].
 function openSearch() {
+  searchMode = 'dest';
+  pendingDest = null;
   show('search');
+  $('search-title').textContent = '장소 검색';
+  $('origin-opts').hidden = true;
+  $('use-here').hidden = false;
   $('hits').innerHTML = '<p class="empty">장소 이름이나 주소를 입력하세요.<br>누르면 바로 경로를 찾아요</p>';
   $('search-q').value = '';
   $('search-q').focus();
 }
 
-$('search-back').onclick = () => show('home');
+$('search-back').onclick = () => {
+  pendingDest = null;
+  show('home');
+};
 
 $('search-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -497,7 +577,9 @@ function showHits(hits) {
     b.innerHTML = `
       <span class="hit-name">${esc(h.name)}${h.source === 'stop' ? ' <em>정류장</em>' : ''}</span>
       <span class="hit-addr">${esc(h.address || '')}</span>${dist}`;
-    b.onclick = () => onDestination({ ...h, saved: false });
+    b.onclick = () => (searchMode === 'origin'
+      ? chooseOrigin({ ...h, saved: false })
+      : onDestination({ ...h, saved: false }));
     box.appendChild(b);
   }
 }

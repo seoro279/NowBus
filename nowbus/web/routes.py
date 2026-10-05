@@ -98,11 +98,17 @@ async def get_plan(
     to_name: str | None = Query(
         None, max_length=50, description="좌표로 준 목적지의 표시 이름 (검색 결과에서 바로 갈 때)"
     ),
-    from_: str | None = Query(None, alias="from", description="GPS 실패 시 폴백"),
+    from_: str | None = Query(None, alias="from", description="출발지 즐겨찾기 이름"),
+    from_name: str | None = Query(
+        None, max_length=50, description="좌표로 준 출발지의 표시 이름 (검색으로 고른 출발지)"
+    ),
     radius: int | None = Query(None, ge=100, le=2000, description="출발 반경(m). 재검색용"),
 ) -> PlanResponse:
     origin, origin_label = _resolve(repo, lat, lon, from_, "출발")
     dest, dest_label = _resolve(repo, to_lat, to_lon, to, "목적")
+    if from_name and lat is not None and lon is not None:
+        # 출발지를 현재 위치 대신 검색으로 골랐을 때. 없으면 '현재 위치' 로 남는다.
+        origin_label = from_name
     if to_name and to_lat is not None and to_lon is not None:
         # 즐겨찾기에 없는 곳으로 바로 갈 때. 이름이 없으면 '지정 좌표' 로 남는다.
         dest_label = to_name
