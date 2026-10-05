@@ -40,6 +40,10 @@ class Arrival:
     is_last: bool = False
     is_estimated: bool = False  # headway로 추정한 값인지
     headway_min: float | None = None  # 같은 응답의 term. 3차 추정에 쓴다
+    # 이 도착정보가 노선의 몇 번째 경유 지점에 대한 것인지(응답의 staOrd).
+    # route_stop.seq 와 같은 축이다 (실물 340·N61·N64 로 대조). 같은 정류장을 두 번
+    # 지나는 노선에서 어느 쪽으로 오는 차인지 가리는 데 쓴다.
+    sta_ord: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

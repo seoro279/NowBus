@@ -90,6 +90,21 @@ def _build(
     )
 
 
+def _on_pass(arrival: Arrival, combo: Combo, passes: set[int]) -> bool:
+    """이 도착정보가 이 조합의 승차 pass 로 오는 차인가.
+
+    같은 정류장을 한 번만 지나는 노선이면 따지지 않는다. 정적 데이터(xlsx)와 실시간
+    노선 seq 가 어긋나도 멀쩡한 후보를 잃지 않게 하려는 것이다.
+
+    두 번 이상 지나는 곳이면 staOrd 가 가리키는 pass 와만 짝짓는다. staOrd 가 없거나
+    아는 seq 가 아니면 어느 쪽인지 모르므로 예전처럼 모든 pass 에 붙인다 - 랭킹이
+    노선당 한 장만 남기므로 결과는 '가장 짧은 pass' 로 계산된 것이다.
+    """
+    if len(passes) < 2 or arrival.sta_ord is None or arrival.sta_ord not in passes:
+        return True
+    return arrival.sta_ord == combo.board_seq
+
+
 def _rank_sprints(sprints: list[Plan], best: list[Plan], cfg: Settings) -> list[Plan]:
     """뛰는 후보를 걸러 정렬한다. rank() 의 다양성 보정은 여기 쓰지 않는다.
 
@@ -167,6 +182,8 @@ async def plan_now(
     headings = repo.board_context(
         list({(c.route_id, c.board_seq) for c in combos if c.board_seq is not None})
     )
+    # 같은 정류장을 두 번 지나는 노선을 가려낸다. 조합은 pass 마다 한 건이다.
+    passes = repo.stop_passes(list({(c.route_id, c.board_stop_id) for c in combos}))
 
     plans: list[Plan] = []
     sprints: list[Plan] = []
@@ -176,9 +193,16 @@ async def plan_now(
         if board is None or alight is None:
             continue
 
-        on_route = [a for a in arrivals.get(c.board_stop_id, []) if a.route_id == c.route_id]
+        seqs = passes.get((c.route_id, c.board_stop_id), set())
+        on_route = [
+            a
+            for a in arrivals.get(c.board_stop_id, [])
+            if a.route_id == c.route_id and _on_pass(a, c, seqs)
+        ]
         if not on_route:
-            continue  # 이 노선은 지금 이 정류장에 도착 정보가 없다 (운행종료 등)
+            # 이 노선은 지금 이 정류장에 도착 정보가 없다 (운행종료 등). 또는 오는 차가
+            # 다른 pass 로 지나는 중이다 - 그 차를 타면 목적지와 다른 쪽으로 간다.
+            continue
 
         w_to = walk_to[c.board_stop_id]
         w_from = walk_from[c.alight_stop_id]

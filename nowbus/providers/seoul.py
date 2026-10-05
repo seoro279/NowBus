@@ -67,6 +67,7 @@ def parse_arrivals(xml_text: str, stop_id: str | None = None) -> list[Arrival]:
         if not route_id or not resolved:
             continue
         headway = _int_or_none(_text(it, "term"))
+        sta_ord = _int_or_none(_text(it, "staOrd"))
         for order in (1, 2):
             msg = _text(it, f"arrmsg{order}")
             if not msg or any(bad in msg for bad in _NOT_RUNNING):
@@ -88,6 +89,7 @@ def parse_arrivals(xml_text: str, stop_id: str | None = None) -> list[Arrival]:
                     congestion=_int_or_none(_text(it, f"congestion{order}")),
                     is_last=_text(it, f"isLast{order}") == "1",
                     headway_min=float(headway) if headway else None,
+                    sta_ord=sta_ord,
                 )
             )
     return out

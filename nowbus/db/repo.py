@@ -73,12 +73,15 @@ class StaticRepo:
         stop_id 에 서로 다른 seq 를 가지므로, 반대편에서 타면 seq 가 감소해
         자동으로 탈락한다.
 
-        같은 (route, board, alight) 가 여러 번 나오면 n_stops 최소값만 남긴다
-        (계획서 §10-2 회차 노선 대응).
+        **승차 pass 마다 한 건**이다. 같은 정류장을 두 번 지나는 노선(서울 718개 중
+        224개)은 지나는 횟수만큼 조합이 나오고, 각각 그 pass 에서 가장 가까운 하차
+        지점까지의 정거장 수를 갖는다 (계획서 §10-2 회차 노선 대응).
 
-        board_seq 는 그 최소값을 만든 행의 승차 seq 다. SQLite 는 집계에 MIN() 이
-        하나뿐이면 나머지 bare column 을 그 최소 행에서 가져온다(문서화된 동작).
-        같은 정류장을 두 번 지나는 노선에서 엉뚱한 쪽 seq 를 집지 않게 하려는 것이다.
+        예전에는 (route, board, alight) 당 최소값 하나만 남겼다. 그러면 실물 5616번
+        난곡우체국사거리(seq 14, 87)에서 첫 번째로 지나는 차도 '20정거장' 으로
+        계산했다 - 실제로는 목동을 다 돌고 93정거장이다. 오목교역처럼 첫 pass 에서만
+        가는 목적지는 둘째 pass 로 오는 차(가산행)를 태웠다. 어느 pass 로 오는 차인지는
+        도착정보의 staOrd 로 플래너가 가린다.
         """
         if not origin_stop_ids or not dest_stop_ids:
             return []
@@ -97,7 +100,7 @@ class StaticRepo:
             WHERE rs1.stop_id IN ({o})
               AND rs2.stop_id IN ({d})
               AND rs2.seq > rs1.seq
-            GROUP BY rs1.route_id, rs1.stop_id, rs2.stop_id
+            GROUP BY rs1.route_id, rs1.stop_id, rs1.seq, rs2.stop_id
             """,
             (*origin_stop_ids, *dest_stop_ids),
         ).fetchall()
@@ -105,6 +108,33 @@ class StaticRepo:
             Combo(r["route_id"], r["board_stop"], r["alight_stop"], r["n_stops"], r["board_seq"])
             for r in rows
         ]
+
+    def stop_passes(self, keys: list[tuple[str, str]]) -> dict[tuple[str, str], set[int]]:
+        """(route_id, stop_id) → 그 노선이 그 정류장을 지나는 seq 전부.
+
+        두 개 이상이면 '같은 정류장을 두 번 지나는' 곳이다. 플래너가 도착정보를
+        pass 와 짝지을지 정하는 데 쓴다. 조합에는 목적지에 가는 pass 만 있으므로
+        조합만 보고는 알 수 없다.
+        """
+        if not keys:
+            return {}
+        routes = list({r for r, _ in keys})
+        stops = list({s for _, s in keys})
+        rows = self.conn.execute(
+            f"""
+            SELECT route_id, stop_id, seq FROM route_stop
+            WHERE route_id IN ({",".join("?" * len(routes))})
+              AND stop_id IN ({",".join("?" * len(stops))})
+            """,
+            (*routes, *stops),
+        ).fetchall()
+        want = set(keys)
+        out: dict[tuple[str, str], set[int]] = {}
+        for r in rows:
+            k = (r["route_id"], r["stop_id"])
+            if k in want:
+                out.setdefault(k, set()).add(r["seq"])
+        return out
 
     def board_context(
         self, keys: list[tuple[str, int]]
